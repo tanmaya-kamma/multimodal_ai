@@ -10,7 +10,13 @@ Usage (from project root):
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import json
+import h3
 from pathlib import Path
+import sys
+
+# Add project root to path so we can import fusion
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "fusion"))
 
 # ──────────────────────────────────────────────
 # App Setup
@@ -153,6 +159,156 @@ async def get_grocery_stores():
     if "grocery_stores" not in _cache:
         raise HTTPException(status_code=503, detail="Grocery stores not loaded. Run fetch_poi_data.py first.")
     return _cache["grocery_stores"]
+
+
+# ──────────────────────────────────────────────
+# Fusion & Alert Endpoints
+# ──────────────────────────────────────────────
+
+@app.post("/arlington/fusion/run")
+async def run_fusion_endpoint():
+    """
+    Trigger the fusion engine. Clears old alerts,
+    analyzes all current data, generates fresh alerts.
+    Call this before reading /alerts/active.
+    """
+    from fusion_engine import run_fusion
+    alerts = run_fusion()
+    return {
+        "status": "success",
+        "alerts_generated": len(alerts),
+    }
+
+
+@app.get("/arlington/alerts/active")
+async def get_active_alerts():
+    """
+    Returns all active alerts. Each alert has:
+      1. location — where the issue is
+      2. explanation — what's happening and why
+      3. source_links — clickable links to each data source
+      4. severity — 0.0 to 1.0
+      5. confidence — 0.0 to 1.0
+      6. recommended_actions — steps to take
+    """
+    from fusion_engine import run_fusion
+    raw_alerts = run_fusion()
+
+    alerts = []
+    for a in raw_alerts:
+        alerts.append({
+            "location": a["location"],
+            "explanation": a["explanation"],
+            "source_links": a["source_links"],
+            "severity": a["severity"],
+            "confidence": a["confidence"],
+            "recommended_actions": a["recommended_actions"],
+            "alert_tier": a["alert_tier"],
+            "affected_pois": a["affected_pois"],
+            "affected_roads": a["affected_roads"],
+            "timestamp": a["timestamp"],
+        })
+
+    return {"total_alerts": len(alerts), "alerts": alerts}
+
+
+@app.get("/arlington/heatmap")
+async def get_heatmap():
+    """
+    Returns deduplicated H3 cells with severity scores
+    and hexagon boundary coordinates for map overlay.
+    """
+    import sqlite3
+    db_path = STATIC_DIR.parent / "supply_chain.db"
+    conn = sqlite3.connect(db_path)
+
+    # Get highest severity per cell (deduplicated)
+    rows = conn.execute("""
+        SELECT h3_cell, alert_tier, MAX(combined_severity) as severity, MAX(source_count) as sources
+        FROM alerts
+        GROUP BY h3_cell
+        ORDER BY severity DESC
+    """).fetchall()
+    conn.close()
+
+    cells = []
+    for h3_cell, tier, severity, sources in rows:
+        boundary = h3.cell_to_boundary(h3_cell)
+        cells.append({
+            "h3_cell": h3_cell,
+            "tier": tier,
+            "severity": severity,
+            "boundary": [{"lat": lat, "lon": lon} for lat, lon in boundary],
+        })
+
+    return {"total_cells": len(cells), "cells": cells}
+
+
+@app.get("/arlington/alerts/cell/{h3_cell}")
+async def get_cell_detail(h3_cell: str):
+    """
+    Drill-down: returns everything known about a specific H3 cell.
+    All raw signals, POIs at risk, roads affected.
+    """
+    import sqlite3
+    db_path = STATIC_DIR.parent / "supply_chain.db"
+    conn = sqlite3.connect(db_path)
+
+    weather = [
+        {"alert_type": r[0], "severity": r[1], "confidence": r[2], "timestamp": r[3]}
+        for r in conn.execute(
+            "SELECT alert_type, severity, confidence, timestamp_utc FROM processed_weather WHERE h3_cell = ?",
+            (h3_cell,)
+        ).fetchall()
+    ]
+
+    traffic = [
+        {"camera_id": r[0], "congestion": r[1], "anomaly": r[2], "image": r[3], "severity": r[4], "timestamp": r[5]}
+        for r in conn.execute(
+            "SELECT camera_id, congestion_level, anomaly_type, image_path, severity, timestamp_utc FROM processed_traffic WHERE h3_cell = ?",
+            (h3_cell,)
+        ).fetchall()
+    ]
+
+    news = [
+        {"source": r[0], "title": r[1], "location": r[2], "event_type": r[3], "severity": r[4], "timestamp": r[5]}
+        for r in conn.execute(
+            "SELECT source_name, title, extracted_location, event_type, severity, timestamp_utc FROM processed_news WHERE h3_cell = ?",
+            (h3_cell,)
+        ).fetchall()
+    ]
+
+    pois = [
+        {"type": r[0], "name": r[1], "address": r[2], "lat": r[3], "lon": r[4]}
+        for r in conn.execute(
+            "SELECT poi_type, name, address, lat, lon FROM processed_pois WHERE h3_cell = ?",
+            (h3_cell,)
+        ).fetchall()
+    ]
+
+    roads = [
+        {"name": r[0], "type": r[1], "ref": r[2]}
+        for r in conn.execute(
+            "SELECT DISTINCT road_name, highway_type, ref FROM processed_roads WHERE h3_cell = ?",
+            (h3_cell,)
+        ).fetchall()
+        if r[0] != "Unnamed"
+    ]
+
+    conn.close()
+
+    return {
+        "h3_cell": h3_cell,
+        "signals": {
+            "weather": weather,
+            "traffic": traffic,
+            "news": news,
+        },
+        "at_risk": {
+            "pois": pois,
+            "roads": roads,
+        },
+    }
 
 
 @app.get("/arlington/base-layer")
