@@ -85,7 +85,7 @@ CORROBORATION_MATRIX = {
 TIER_THRESHOLDS = {
     "CRITICAL": {"min_severity": 0.70, "min_sources": 2},
     "WARNING":  {"min_severity": 0.45, "min_sources": 2},
-    "WATCH":    {"min_severity": 0.25, "min_sources": 1},
+    "WATCH":    {"min_severity": 0.30, "min_sources": 1},
 }
 
 # Event type → recommended actions mapping
@@ -310,11 +310,14 @@ def fuse_cell_signals(signals: dict) -> dict | None:
       - Temporal freshness (decay)
       - Cross-source corroboration (dynamic)
     
-    Returns fused assessment for the cell.
+    Returns fused assessment for the cell, or None if no valid signals.
     """
     all_signals = []
     for source, sigs in signals.items():
         for sig in sigs:
+            # Skip zero-severity signals (camera noise, clear weather, etc.)
+            if sig["severity"] <= 0.0:
+                continue
             all_signals.append(sig)
 
     if not all_signals:
