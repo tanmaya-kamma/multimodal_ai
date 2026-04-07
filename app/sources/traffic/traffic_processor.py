@@ -28,6 +28,7 @@ import base64
 import os
 from pathlib import Path
 from datetime import datetime, timezone
+from typing import Any, Optional
 
 try:
     import anthropic
@@ -151,7 +152,7 @@ def compute_baseline_score(latest_path: str, camera_id: str) -> float:
 # ──────────────────────────────────────────────
 # TECHNIQUE 2: Claude Vision API Analysis
 # ──────────────────────────────────────────────
-def analyze_with_claude_vision(image_path: str, camera_location: str) -> dict:
+def analyze_with_claude_vision(image_path: str, camera_location: str) -> Optional[dict[str, Any]]:
     """
     Send camera image to Claude Vision for intelligent analysis.
     Returns structured assessment of road conditions.
@@ -159,7 +160,7 @@ def analyze_with_claude_vision(image_path: str, camera_location: str) -> dict:
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         print("    ⚠️  ANTHROPIC_API_KEY not set, using rule-based fallback")
-        return {}
+        return None
 
     # Read and encode image
     with open(image_path, "rb") as f:
@@ -212,17 +213,15 @@ Respond ONLY with a JSON object, no other text:
         )
 
         # Parse response
-        # Extract text from response content (filter out non-text blocks)
         response_text = ""
-        for block in response.content:
-            if block.type == "text":
-                response_text = block.text.strip()
-                break
-        
-        if not response_text:
-            print(f"    ⚠️  Claude returned no text content")
-            return {}
-        
+        content_blocks = response.content if isinstance(response.content, list) else [response.content]
+        for block in content_blocks:
+            if isinstance(block, dict):
+                response_text += block.get("text", "") or block.get("content", "")
+            else:
+                response_text += getattr(block, "text", None) or getattr(block, "content", None) or str(block)
+
+        response_text = response_text.strip()
         # Clean markdown code fences if present
         response_text = response_text.replace("```json", "").replace("```", "").strip()
         result = json.loads(response_text)
@@ -230,10 +229,10 @@ Respond ONLY with a JSON object, no other text:
 
     except json.JSONDecodeError as e:
         print(f"    ⚠️  Claude returned invalid JSON: {e}")
-        return {}
+        return None
     except Exception as e:
         print(f"    ⚠️  Claude Vision error: {e}")
-        return {}
+        return None
 
 
 # ──────────────────────────────────────────────
@@ -243,33 +242,25 @@ Respond ONLY with a JSON object, no other text:
 def rule_based_assessment(change_score: float, baseline_score: float) -> dict:
     """
     Generate a basic assessment from change detection scores alone.
-    Less accurate than Claude Vision but works without API key.
+    Without Claude Vision, we can only say "something changed" —
+    we DON'T know what it is, so we set severity to 0 and
+    anomaly to "none". Only Claude Vision can identify real issues.
+    
+    This prevents camera noise from generating false alerts.
     """
     combined = max(change_score, baseline_score)
 
     if combined >= 0.5:
         return {
             "road_condition": "unknown",
-            "congestion_level": "blocked",
-            "anomaly_detected": True,
-            "anomaly_type": "unknown",
+            "congestion_level": "unknown",
+            "anomaly_detected": False,  # we don't KNOW it's an anomaly
+            "anomaly_type": "none",
             "visibility": "unknown",
             "truck_presence": "unknown",
-            "severity": min(combined * 1.2, 1.0),
-            "confidence": 0.4,  # low confidence — we only know something changed
-            "description": f"Significant visual change detected (score: {combined:.2f})",
-        }
-    elif combined >= 0.25:
-        return {
-            "road_condition": "unknown",
-            "congestion_level": "slow",
-            "anomaly_detected": True,
-            "anomaly_type": "unknown",
-            "visibility": "unknown",
-            "truck_presence": "unknown",
-            "severity": combined * 0.8,
-            "confidence": 0.35,
-            "description": f"Moderate visual change detected (score: {combined:.2f})",
+            "severity": 0.0,  # zero severity — only Claude Vision can assign real severity
+            "confidence": 0.0,
+            "description": f"Visual change detected (score: {combined:.2f}) — requires Vision AI analysis to classify",
         }
     else:
         return {
