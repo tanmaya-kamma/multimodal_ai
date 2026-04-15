@@ -69,8 +69,8 @@ export const POIMarkers: React.FC<POIMarkersProps> = ({ map, gasData, groceryDat
       });
     };
 
-    addMarkers(gasData, '#F87171', 'Gas Station');
-    addMarkers(groceryData, '#34D399', 'Grocery Store');
+    addMarkers(gasData, 'var(--status-neutral)', 'Gas Station');
+    addMarkers(groceryData, 'var(--status-neutral)', 'Grocery Store');
 
     setMarkers(newMarkers);
 

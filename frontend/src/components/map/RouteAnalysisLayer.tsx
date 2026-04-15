@@ -59,7 +59,41 @@ export const RouteAnalysisLayer: React.FC<RouteAnalysisLayerProps> = ({ map, rou
       (map.getSource('route-compromised-source') as maplibregl.GeoJSONSource).setData(compromisedGeoJSON);
     }
 
-    // 3. Markers Source
+    // 3. Trail Source (Animated Route Path)
+    if (!map.getSource('route-trail-source')) {
+      map.addSource('route-trail-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addLayer({
+        id: 'route-trail-layer',
+        type: 'line',
+        source: 'route-trail-source',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': 'var(--status-neutral)',
+          'line-width': 4,
+          'line-opacity': 0.8,
+          'line-blur': 1
+        }
+      });
+    }
+
+    // 4. Truck Markers Source (Animated Leads)
+    if (!map.getSource('route-truck-source')) {
+      map.addSource('route-truck-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addLayer({
+        id: 'route-truck-layer',
+        type: 'circle',
+        source: 'route-truck-source',
+        paint: {
+          'circle-radius': 6,
+          'circle-color': '#FFFFFF',
+          'circle-stroke-width': 3,
+          'circle-stroke-color': 'var(--status-neutral)',
+          'circle-pitch-alignment': 'map'
+        }
+      });
+    }
+
+    // 5. Markers Source (Start/End nodes)
     if (!map.getSource('route-markers-source')) {
       map.addSource('route-markers-source', { type: 'geojson', data: markersGeoJSON });
       map.addLayer({
@@ -82,13 +116,67 @@ export const RouteAnalysisLayer: React.FC<RouteAnalysisLayerProps> = ({ map, rou
       (map.getSource('route-markers-source') as maplibregl.GeoJSONSource).setData(markersGeoJSON);
     }
 
-    // Animation loop for neon pulse on compromised lines
+    // Unified Animation loop
     const animate = () => {
-      if (!map.getLayer('route-compromised-layer')) return;
-      const t = (Date.now() - startTimeRef.current) / 1000;
-      // Pulse between 0.3 and 0.9 opacity roughly every 1.5 seconds
-      const opacity = 0.6 + 0.3 * Math.sin(t * Math.PI * 1.5);
-      map.setPaintProperty('route-compromised-layer', 'line-opacity', opacity);
+      const now = Date.now();
+      const t = (now - startTimeRef.current) / 1000;
+      
+      // A) Pulse effect on compromised lines
+      if (map.getLayer('route-compromised-layer')) {
+        const opacity = 0.6 + 0.3 * Math.sin(t * Math.PI * 1.5);
+        map.setPaintProperty('route-compromised-layer', 'line-opacity', opacity);
+      }
+
+      // B) Tactical Truck Lerp and Trail effect
+      const LOOP_DURATION_MS = 6000; // 6 seconds to traverse route
+      const loopT = (now % LOOP_DURATION_MS) / LOOP_DURATION_MS; // 0.0 to 1.0
+
+      const truckFeatures: GeoJSON.Feature[] = [];
+      const trailFeatures: GeoJSON.Feature[] = [];
+
+      routeData.routes.forEach(route => {
+        if (route.status === 'route_not_found' || route.route_coordinates.length < 2) return;
+        
+        const coords = route.route_coordinates;
+        const totalPoints = coords.length;
+        const exactIndex = loopT * (totalPoints - 1);
+        const index1 = Math.floor(exactIndex);
+        const index2 = Math.min(index1 + 1, totalPoints - 1);
+        const fract = exactIndex - index1;
+
+        // Linear Interpolation
+        const p1 = coords[index1];
+        const p2 = coords[index2];
+        const lng = p1.lon + (p2.lon - p1.lon) * fract;
+        const lat = p1.lat + (p2.lat - p1.lat) * fract;
+
+        truckFeatures.push({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [lng, lat] },
+          properties: {}
+        });
+
+        const trailCoords = coords.slice(0, index1 + 1).map(c => [c.lon, c.lat]);
+        trailCoords.push([lng, lat]);
+        
+        trailFeatures.push({
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: trailCoords },
+          properties: {}
+        });
+      });
+
+      if (map.getSource('route-truck-source')) {
+        (map.getSource('route-truck-source') as maplibregl.GeoJSONSource).setData({
+          type: 'FeatureCollection', features: truckFeatures
+        });
+      }
+      if (map.getSource('route-trail-source')) {
+        (map.getSource('route-trail-source') as maplibregl.GeoJSONSource).setData({
+          type: 'FeatureCollection', features: trailFeatures
+        });
+      }
+
       animationFrameRef.current = requestAnimationFrame(animate);
     };
 
@@ -128,7 +216,6 @@ export const RouteAnalysisLayer: React.FC<RouteAnalysisLayerProps> = ({ map, rou
       map.off('mouseenter', 'route-markers-layer', handleMouseEnter);
       map.off('mouseleave', 'route-markers-layer', handleMouseLeave);
       popup.remove();
-      // Don't remove layers here; only remove when component unmounts or data is null
     };
   }, [map, routeData]);
 
@@ -141,10 +228,10 @@ export const RouteAnalysisLayer: React.FC<RouteAnalysisLayerProps> = ({ map, rou
 };
 
 function removeLayers(map: maplibregl.Map) {
-  const layers = ['route-clear-layer', 'route-compromised-layer', 'route-markers-layer'];
+  const layers = ['route-clear-layer', 'route-compromised-layer', 'route-markers-layer', 'route-trail-layer', 'route-truck-layer'];
   layers.forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
   
-  const sources = ['route-clear-source', 'route-compromised-source', 'route-markers-source'];
+  const sources = ['route-clear-source', 'route-compromised-source', 'route-markers-source', 'route-trail-source', 'route-truck-source'];
   sources.forEach(s => { if (map.getSource(s)) map.removeSource(s); });
 }
 
