@@ -7,8 +7,8 @@ import { BoundaryLayer } from './BoundaryLayer';
 import { RoadLayer } from './RoadLayer';
 import { HeatmapLayer } from './HeatmapLayer';
 import { POIMarkers } from './POIMarkers';
-import { MapControls } from './MapControls';
 import { MapLegend } from './MapLegend';
+import { RouteAnalysisLayer } from './RouteAnalysisLayer';
 
 // Fixed Arlington bounds
 const INITIAL_BOUNDS = [
@@ -20,9 +20,10 @@ export const MapContainer: React.FC = () => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<maplibregl.Map | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [zoom, setZoom] = useState(12);
   
   const staticData = useStaticLayers();
-  const { layerVisibility } = useMapStore();
+  const { layerVisibility, routeData } = useMapStore();
 
   useEffect(() => {
     if (!mapContainer.current || map) return;
@@ -40,6 +41,12 @@ export const MapContainer: React.FC = () => {
 
     m.on('load', () => {
       setIsLoaded(true);
+      setZoom(m.getZoom());
+    });
+
+    // Track zoom level for contextual filtering
+    m.on('zoom', () => {
+      setZoom(m.getZoom());
     });
 
     setMap(m);
@@ -52,11 +59,10 @@ export const MapContainer: React.FC = () => {
       {/* Container for MapLibre Canvas */}
       <div 
         ref={mapContainer} 
-        style={{ width: '100%', height: '100%', background: '#0a0a0a' }} 
+        style={{ width: '100%', height: '100%', background: '#0C0E14' }} 
       />
 
-      {/* Map Overlays */}
-      <MapControls />
+      {/* Map Legend (positioned inside map area) */}
       {layerVisibility.heatmap && <MapLegend />}
 
       {/* Declarative rendering of map logic (only when map is fully loaded) */}
@@ -70,12 +76,15 @@ export const MapContainer: React.FC = () => {
             majorData={staticData.majorRoads} 
             secondaryData={staticData.secondaryRoads} 
             railwayData={staticData.railways}
+            zoom={zoom}
           />
           <POIMarkers 
             map={map} 
             gasData={staticData.gasStations} 
             groceryData={staticData.groceryStores}
+            zoom={zoom}
           />
+          <RouteAnalysisLayer map={map} routeData={routeData} />
         </>
       )}
     </div>

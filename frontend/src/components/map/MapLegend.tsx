@@ -5,7 +5,7 @@ export const MapLegend: React.FC = () => {
     <div style={{
       position: 'absolute',
       bottom: '24px',
-      left: '24px',
+      left: 'calc(var(--sidebar-width, 320px) + 32px)',
       zIndex: 100,
       background: 'rgba(20, 20, 20, 0.85)',
       backdropFilter: 'blur(8px)',
@@ -28,18 +28,18 @@ export const MapLegend: React.FC = () => {
       
       <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <div style={{ width: '12px', height: '12px', background: '#f44336', opacity: 0.8, border: '1px solid #fff' }} />
-          <span style={{ fontSize: '11px', fontWeight: 600, color: '#f44336' }}>CRITICAL</span>
+          <div style={{ width: '12px', height: '12px', background: 'var(--status-critical)', opacity: 0.8, border: '1px solid #fff' }} />
+          <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--status-critical)' }}>CRITICAL</span>
         </div>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <div style={{ width: '12px', height: '12px', background: '#ff9800', opacity: 0.55, border: '1px solid #fff' }} />
-          <span style={{ fontSize: '11px', fontWeight: 600, color: '#ff9800' }}>WARNING</span>
+          <div style={{ width: '12px', height: '12px', background: 'var(--status-warning)', opacity: 0.55, border: '1px solid #fff' }} />
+          <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--status-warning)' }}>WARNING</span>
         </div>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <div style={{ width: '12px', height: '12px', background: '#ffeb3b', opacity: 0.3, border: '1px solid #fff' }} />
-          <span style={{ fontSize: '11px', fontWeight: 600, color: '#ffeb3b' }}>WATCH</span>
+          <div style={{ width: '12px', height: '12px', background: 'var(--status-watch)', opacity: 0.3, border: '1px solid #fff' }} />
+          <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--status-watch)' }}>WATCH</span>
         </div>
       </div>
     </div>

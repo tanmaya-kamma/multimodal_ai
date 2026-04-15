@@ -4,14 +4,14 @@ import { useSystemHealth } from '../../hooks/useAlerts';
 export const SystemStatus: React.FC = () => {
   const { data, isLoading, isError } = useSystemHealth();
 
-  let statusColor = '#4caf50'; // Green
+  let statusColor = 'var(--status-optimal)'; // Green
   let statusText = 'System Real-time';
 
   if (isLoading) {
-    statusColor = '#ff9800';
+    statusColor = 'var(--status-watch)';
     statusText = 'Connecting...';
   } else if (isError) {
-    statusColor = '#f44336';
+    statusColor = 'var(--status-critical)';
     statusText = 'Connection Error';
   }
 

@@ -70,7 +70,7 @@ export const LandingPage: React.FC = () => {
           </p>
 
           <button
-            onClick={() => navigate('/map')}
+            onClick={() => navigate('/command-center')}
             style={{
               padding: '16px 48px',
               fontSize: '1.1rem',

@@ -26,7 +26,7 @@ export const HeatmapLayer: React.FC<HeatmapLayerProps> = ({ map }) => {
         data: data.geojson as GeoJSON.FeatureCollection
       });
 
-      // Fill Layer
+      // Fill Layer — Solaris Clay status colors
       map.addLayer({
         id: fillLayerId,
         type: 'fill',
@@ -35,19 +35,19 @@ export const HeatmapLayer: React.FC<HeatmapLayerProps> = ({ map }) => {
           'fill-color': [
              'let', 'sev', ['get', 'severity'],
              ['case',
-               ['>=', ['var', 'sev'], 0.7], '#f44336',
-               ['>=', ['var', 'sev'], 0.45], '#ff9800',
-               ['>=', ['var', 'sev'], 0.25], '#ffeb3b',
-               '#ffeb3b'
+               ['>=', ['var', 'sev'], 0.7], '#F87171',   // Critical
+               ['>=', ['var', 'sev'], 0.45], '#FBBF24',  // Watch
+               ['>=', ['var', 'sev'], 0.25], '#34D399',  // Optimal
+               '#34D399'                                   // Default
              ]
           ],
           'fill-opacity': [
              'let', 'sev', ['get', 'severity'],
              ['case',
-               ['>=', ['var', 'sev'], 0.7], 0.8,
-               ['>=', ['var', 'sev'], 0.45], 0.55,
+               ['>=', ['var', 'sev'], 0.7], 0.75,
+               ['>=', ['var', 'sev'], 0.45], 0.5,
                ['>=', ['var', 'sev'], 0.25], 0.3,
-               0.15
+               0.12
              ]
           ]
         }
@@ -60,8 +60,22 @@ export const HeatmapLayer: React.FC<HeatmapLayerProps> = ({ map }) => {
         source: sourceId,
         paint: {
           'line-color': '#ffffff',
-          'line-opacity': 0.2,
+          'line-opacity': 0.12,
           'line-width': 1
+        }
+      });
+
+      // Pulse glow for high-severity cells
+      map.addLayer({
+        id: 'h3-heatmap-pulse',
+        type: 'line',
+        source: sourceId,
+        filter: ['>=', ['get', 'severity'], 0.8],
+        paint: {
+          'line-color': '#F87171',
+          'line-width': 4,
+          'line-blur': 8,
+          'line-opacity': 0.5
         }
       });
 
@@ -71,7 +85,7 @@ export const HeatmapLayer: React.FC<HeatmapLayerProps> = ({ map }) => {
         type: 'line',
         source: sourceId,
         paint: {
-          'line-color': '#4fc3f7',
+          'line-color': '#67e8f9',
           'line-width': 3,
           'line-opacity': ['case', ['boolean', ['feature-state', 'selected'], false], 1, 0]
         }
@@ -99,8 +113,26 @@ export const HeatmapLayer: React.FC<HeatmapLayerProps> = ({ map }) => {
     if (map.getLayer(fillLayerId)) {
       map.setLayoutProperty(fillLayerId, 'visibility', visible ? 'visible' : 'none');
       map.setLayoutProperty(lineLayerId, 'visibility', visible ? 'visible' : 'none');
+      map.setLayoutProperty('h3-heatmap-pulse', 'visibility', visible ? 'visible' : 'none');
       map.setLayoutProperty(highlightLayerId, 'visibility', visible ? 'visible' : 'none');
     }
+  }, [map, visible]);
+
+  // Request Animation Frame for pulse
+  useEffect(() => {
+    let animationId: number;
+    const animate = () => {
+      if (map && map.getLayer('h3-heatmap-pulse') && visible) {
+        const t = performance.now() / 1500;
+        const opacity = 0.2 + 0.5 * Math.abs(Math.sin(t * Math.PI));
+        map.setPaintProperty('h3-heatmap-pulse', 'line-opacity', opacity);
+      }
+      animationId = requestAnimationFrame(animate);
+    };
+    if (visible) {
+      animate();
+    }
+    return () => cancelAnimationFrame(animationId);
   }, [map, visible]);
 
   // Handle selection state
@@ -119,9 +151,6 @@ export const HeatmapLayer: React.FC<HeatmapLayerProps> = ({ map }) => {
     if (selectedCell) {
        const index = data.geojson.features.findIndex((f: any) => f.properties.h3_cell === selectedCell);
        if (index !== -1) {
-         // This requires feature IDs to be set or we just use the index if we pass it, 
-         // alternatively we can just filter in a separate highlight source.
-         // A more reliable way for MapLibre without explicit numeric IDs:
          map.setFilter(highlightLayerId, ['==', ['get', 'h3_cell'], selectedCell]);
          map.setPaintProperty(highlightLayerId, 'line-opacity', 1);
        }
