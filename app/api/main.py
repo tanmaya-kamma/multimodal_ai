@@ -29,18 +29,19 @@ app = FastAPI(
     description="Base layer API for Arlington, VA supply chain situational awareness",
     version="0.1.0",
 )
-# Ensure the static directory exists
-import os
+# Define absolute static file directory
+API_DIR = Path(__file__).resolve().parent
+STATIC_PATH = API_DIR / "static"
+STATIC_PATH.mkdir(parents=True, exist_ok=True)
 
-# Define the exact path where images should live
-STATIC_DIR = os.path.join(os.getcwd(), "app/api/static/simulation")
+# Ensure the simulation subfolder exists
+SIMULATION_DIR = STATIC_PATH / "simulation"
+SIMULATION_DIR.mkdir(parents=True, exist_ok=True)
 
-# The 'exist_ok=True' is the magic part—it creates it if it's missing
-os.makedirs(STATIC_DIR, exist_ok=True)
+print(f"VLM Image Vault active at: {SIMULATION_DIR}")
 
-print(f"VLM Image Vault active at: {STATIC_DIR}")
-# "Mount" the folder so it is accessible at http://localhost:8000/static
-app.mount("/static", StaticFiles(directory="app/api/static"), name="static")
+# Mount the static folder using the absolute path
+app.mount("/static", StaticFiles(directory=str(STATIC_PATH)), name="static")
 
 app.add_middleware(
     CORSMiddleware,
@@ -56,7 +57,7 @@ app.include_router(viewer_router)
 # ──────────────────────────────────────────────
 # Constants
 # ──────────────────────────────────────────────
-STATIC_DIR = Path(__file__).resolve().parent.parent / "data" / "static"
+DATA_STATIC_DIR = Path(__file__).resolve().parent.parent / "data" / "static"
 
 ARLINGTON_BBOX = {
     "south": 38.827,
@@ -76,7 +77,7 @@ _cache = {}
 
 
 def load_json(filename: str) -> dict | None:
-    filepath = STATIC_DIR / filename
+    filepath = DATA_STATIC_DIR / filename
     if not filepath.exists():
         print(f"    {filepath} not found — run fetch_osm_data.py first")
         return None
@@ -395,7 +396,7 @@ async def get_cell_detail(h3_cell: str):
     All raw signals, POIs at risk, roads affected.
     """
     import sqlite3
-    db_path = STATIC_DIR.parent / "supply_chain.db"
+    db_path = DATA_STATIC_DIR.parent / "supply_chain.db"
     conn = sqlite3.connect(db_path)
 
     weather = [

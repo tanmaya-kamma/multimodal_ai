@@ -67,11 +67,13 @@ function normalizeImagePaths(data: unknown, baseUrl: string): void {
 
   // Normalize image_path fields
   if (typeof obj.image_path === 'string' && obj.image_path && !obj.image_path.startsWith('http')) {
-    obj.image_path = `${baseUrl}/static/${obj.image_path}`;
+    const cleanPath = obj.image_path.replace(/\\/g, '/');
+    obj.image_path = `${baseUrl}/static/${cleanPath}`;
   }
   // Normalize link fields that look like file paths (VLM camera evidence)
-  if (typeof obj.link === 'string' && obj.link && !obj.link.startsWith('http') && obj.link.includes('/')) {
-    obj.link = `${baseUrl}/static/${obj.link}`;
+  if (typeof obj.link === 'string' && obj.link && !obj.link.startsWith('http') && (obj.link.includes('/') || obj.link.includes('\\'))) {
+    const cleanPath = obj.link.replace(/\\/g, '/');
+    obj.link = `${baseUrl}/static/${cleanPath}`;
   }
 
   Object.values(obj).forEach(val => normalizeImagePaths(val, baseUrl));

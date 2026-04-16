@@ -148,7 +148,7 @@ ACTION_MAP = {
 
 def get_db():
     if not DB_PATH.exists():
-        print(f"   Database not found at {DB_PATH}")
+        print(f"   [ERROR] Database not found at {DB_PATH}")
         return None
     return sqlite3.connect(DB_PATH)
 
@@ -752,8 +752,8 @@ def run_fusion() -> list:
         alerts.append(alert)
 
         # Print
-        icon = {"CRITICAL": "[C]", "WARNING": "[W]", "WATCH": "[*]"}.get(tier, "[ ]")
-        print(f"    {icon} {tier:8s} | sev={fusion['fused_severity']:.2f} | "
+        log_icon = {"CRITICAL": "[C]", "WARNING": "[W]", "WATCH": "[*]"}.get(tier, "[ ]")
+        print(f"    {log_icon} {tier:8s} | sev={fusion['fused_severity']:.2f} | "
               f"conf={fusion['fused_confidence']:.2f} | "
               f"sources={fusion['source_count']} | {location_text[:50]}")
 
@@ -808,9 +808,9 @@ def run_fusion() -> list:
         print(f"\n  [5/5] Detailed Alerts:\n")
         for i, alert in enumerate(alerts, 1):
             icon = {"CRITICAL": "[C]", "WARNING": "[W]", "WATCH": "[*]"}.get(alert["alert_tier"], "[ ]")
-            print(f"  {'─' * 56}")
+            print(f"  {'-' * 56}")
             print(f"  {icon} Alert #{i}: {alert['alert_tier']}")
-            print(f"  {'─' * 56}")
+            print(f"  {'-' * 56}")
             print(f"      Location:    {alert['location']}")
             print(f"      Severity:    {alert['severity']:.2f}")
             print(f"      Confidence:  {alert['confidence']:.2f}")
@@ -834,7 +834,7 @@ def run_fusion() -> list:
             print(f"\n      Source Evidence:")
             for link in alert["source_links"]:
                 print(f"     • {link['source_name']}: {link['description']}")
-                print(f"       → {link['link']}")
+                print(f"       -> {link['link']}")
             print()
 
     return alerts
