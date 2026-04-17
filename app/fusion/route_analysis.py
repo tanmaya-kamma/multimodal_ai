@@ -1,5 +1,5 @@
-"""
-route_analysis.py — Analyzes supply delivery routes for disruptions.
+﻿"""
+route_analysis.py - Analyzes supply delivery routes for disruptions.
 
 Location: app/fusion/route_analysis.py
 
@@ -7,7 +7,7 @@ Given a source and destinations, finds the driving route using OSRM,
 checks which H3 cells the route passes through, and flags any
 segments that overlap with active disruption alerts.
 
-Uses OSRM (Open Source Routing Machine) — free, no API key.
+Uses OSRM (Open Source Routing Machine) - free, no API key.
 """
 
 import httpx
@@ -17,9 +17,9 @@ import math
 from pathlib import Path
 from datetime import datetime, timezone
 
-# ──────────────────────────────────────────────
+# ----------------------------------------------
 # Constants
-# ──────────────────────────────────────────────
+# ----------------------------------------------
 H3_RESOLUTION = 8
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "supply_chain.db"
 
@@ -64,9 +64,9 @@ def simplify_coords(coordinates: list, min_distance_m: int = SIMPLIFY_DISTANCE_M
     return simplified
 
 
-# ──────────────────────────────────────────────
+# ----------------------------------------------
 # Step 1: Get driving route from OSRM
-# ──────────────────────────────────────────────
+# ----------------------------------------------
 def get_route(source: dict, destination: dict) -> dict | None:
     """
     Get driving route between two points using OSRM.
@@ -81,6 +81,7 @@ def get_route(source: dict, destination: dict) -> dict | None:
         "geometries": "geojson",     # return as GeoJSON
         "steps": "true",             # include turn-by-turn steps
         "annotations": "true",       # include speed/distance per segment
+        "alternatives": "true"       # allow OSRM to find alternates if requested
     }
 
     with httpx.Client(timeout=30) as client:
@@ -118,13 +119,13 @@ def get_route(source: dict, destination: dict) -> dict | None:
             }
 
         except Exception as e:
-            print(f"  ❌ OSRM routing error: {e}")
+            print(f"  - OSRM routing error: {e}")
             return None
 
 
-# ──────────────────────────────────────────────
+# ----------------------------------------------
 # Step 2: Assign H3 cells to route segments
-# ──────────────────────────────────────────────
+# ----------------------------------------------
 def h3_index_route(coordinates: list) -> list:
     """
     Walk along the route coordinates and assign H3 cells.
@@ -150,20 +151,20 @@ def h3_index_route(coordinates: list) -> list:
     return segments
 
 
-# ──────────────────────────────────────────────
+# ----------------------------------------------
 # Step 3: Check which cells have active alerts
-# ──────────────────────────────────────────────
+# ----------------------------------------------
 def get_disrupted_cells(conn) -> dict:
     """
     Get all H3 cells with active alerts above minimum severity.
     Only real disruptions mark routes as compromised.
     """
-    rows = conn.execute("""
+    rows = conn.execute(\"\"\"
         SELECT h3_cell, alert_tier, MAX(combined_severity) as severity, description
         FROM alerts
         WHERE combined_severity >= 0.3
         GROUP BY h3_cell
-    """).fetchall()
+    \"\"\").fetchall()
 
     return {
         row[0]: {
@@ -175,12 +176,13 @@ def get_disrupted_cells(conn) -> dict:
     }
 
 
-# ──────────────────────────────────────────────
+# ----------------------------------------------
 # Step 4: Build Sequential Route Analysis
-# ──────────────────────────────────────────────
+# ----------------------------------------------
 def analyze_routes(source: dict, destinations: list) -> dict:
     """
     Analyze sequential supply route: Source -> Dest1 -> Dest2 -> ... -> DestN.
+    Returns per-destination status flags (e.g., Clear, Compromised).
     """
     conn = get_db()
     if not conn:
@@ -189,126 +191,131 @@ def analyze_routes(source: dict, destinations: list) -> dict:
     disrupted_cells = get_disrupted_cells(conn)
     conn.close()
 
-    full_coords = []
-    simplified_coords_list = []
-    all_segments = []
     total_distance_km = 0
     total_duration_min = 0
+    all_full_coords = []
+    all_simplified_coords = []
     all_directions = []
+    all_compromised_segments = []
     
+    destination_results = []
     current_point = source
-    status = "clear"
-    compromised_count = 0
-    seen_cells = set()
     
-    unreachable_segment = None
-
     for i, dest in enumerate(destinations):
         # Get segment route
         route = get_route(current_point, dest)
         
         if not route:
-            status = "unreachable"
-            unreachable_segment = f"{current_point.get('name', 'Point ' + str(i))} \u2794 {dest.get('name', 'Point ' + str(i+1))}"
+            destination_results.append({
+                "destination": dest["name"],
+                "status": "unreachable",
+                "error": "Unreachable via road network"
+            })
+            # If a leg is unreachable, the chain breaks
             break
         
+        # Analyze this segment's H3 footprint
+        seg_all_segments = h3_index_route(route["full_coordinates"])
+        seg_total_cells = len(set(s["h3_cell"] for s in seg_all_segments))
+        seg_compromised_cells = 0
+        seg_seen_cells = set()
+        
+        # Per-segment compromised segments for visual feedback
+        seg_compromised_gl = []
+        curr_comp = []
+        
+        for seg in seg_all_segments:
+            cell = seg["h3_cell"]
+            disruption = disrupted_cells.get(cell)
+            
+            if disruption:
+                if cell not in seg_seen_cells:
+                    seg_compromised_cells += 1
+                    seg_seen_cells.add(cell)
+                
+                curr_comp.append(seg["start"])
+                curr_comp.append(seg["end"])
+            else:
+                if curr_comp:
+                    deduped = [curr_comp[0]]
+                    for pt in curr_comp[1:]:
+                        if pt != deduped[-1]: deduped.append(pt)
+                    seg_compromised_gl.append({
+                        "coordinates": simplify_coords(deduped),
+                        "severity": 0.8
+                    })
+                    curr_comp = []
+        
+        if curr_comp:
+            deduped = [curr_comp[0]]
+            for pt in curr_comp[1:]:
+                if pt != deduped[-1]: deduped.append(pt)
+            seg_compromised_gl.append({"coordinates": simplify_coords(deduped), "severity": 0.8})
+
+        # Calculate leg status
+        leg_ratio = seg_compromised_cells / max(1, seg_total_cells)
+        if seg_compromised_cells == 0:
+            leg_status = "Clear"
+        elif leg_ratio > 0.4:
+            leg_status = "Severely Compromised"
+        else:
+            leg_status = "Partially Compromised"
+
         # Accumulate metrics
         total_distance_km += route["distance_km"]
         total_duration_min += route["duration_min"]
         
-        # Clean directions for this segment
-        clean_steps = [
+        # Store destination result
+        destination_results.append({
+            "destination": dest["name"],
+            "status": leg_status,
+            "distance_km": route["distance_km"],
+            "duration_min": route["duration_min"],
+            "compromised_cells": seg_compromised_cells,
+            "total_cells": seg_total_cells,
+            "risk_score": round(leg_ratio, 2)
+        })
+
+        # Extend global lists
+        all_directions.extend([
             s for s in route["steps"]
             if s["road_name"] and s["instruction"] not in ("arrive",)
-        ]
-        all_directions.extend(clean_steps)
+        ])
         
-        # Index this segment
-        seg_h3 = h3_index_route(route["full_coordinates"])
-        all_segments.extend(seg_h3)
-        
-        # Track coordinates
-        if full_coords:
-            full_coords.extend(route["full_coordinates"][1:])
-            simplified_coords_list.extend(route["coordinates"][1:])
+        if all_full_coords:
+            all_full_coords.extend(route["full_coordinates"][1:])
+            all_simplified_coords.extend(route["coordinates"][1:])
         else:
-            full_coords.extend(route["full_coordinates"])
-            simplified_coords_list.extend(route["coordinates"])
-            
+            all_full_coords.extend(route["full_coordinates"])
+            all_simplified_coords.extend(route["coordinates"])
+        
+        all_compromised_segments.extend(seg_compromised_gl)
+        
+        # Prepare next leg
         current_point = dest
 
-    if status == "unreachable":
-        return {
-            "source": source,
-            "status": "unreachable",
-            "error": f"Route segment {unreachable_segment} is unreachable via road network.",
-            "analyzed_at": datetime.now(timezone.utc).isoformat(),
-        }
-
-    # Analyze H3 footprint for entire chain
-    for seg in all_segments:
-        cell = seg["h3_cell"]
-        if cell in seen_cells:
-            continue
-        seen_cells.add(cell)
-        
-        disruption = disrupted_cells.get(cell)
-        if disruption:
-            compromised_count += 1
-
-    # Build compromised GL segments
-    compromised_segments = []
-    curr_comp = []
-    
-    for seg in all_segments:
-        disruption = disrupted_cells.get(seg["h3_cell"])
-        if disruption:
-            curr_comp.append(seg["start"])
-            curr_comp.append(seg["end"])
-        else:
-            if curr_comp:
-                deduped = [curr_comp[0]]
-                for pt in curr_comp[1:]:
-                    if pt != deduped[-1]: deduped.append(pt)
-                compromised_segments.append({
-                    "coordinates": simplify_coords(deduped),
-                    "severity": 0.8 # High visual pulse
-                })
-                curr_comp = []
-    
-    if curr_comp:
-        deduped = [curr_comp[0]]
-        for pt in curr_comp[1:]:
-            if pt != deduped[-1]: deduped.append(pt)
-        compromised_segments.append({"coordinates": simplify_coords(deduped), "severity": 0.8})
-
-    # Final overall status
-    total_cells = len(seen_cells)
-    if compromised_count == 0:
-        status = "clear"
-    elif compromised_count / max(1, total_cells) > 0.4:
-        status = "severely_compromised"
+    # Determine overall status
+    statuses = [r["status"] for r in destination_results]
+    if "unreachable" in statuses:
+        overall_status = "unreachable"
+    elif "Severely Compromised" in statuses:
+        overall_status = "severely_compromised"
+    elif "Partially Compromised" in statuses:
+        overall_status = "partially_compromised"
     else:
-        status = "partially_compromised"
-
-    # Single 'chained' result object
-    chained_result = {
-        "source": source,
-        "destinations": destinations,
-        "status": status,
-        "distance_km": round(total_distance_km, 2),
-        "duration_min": round(total_duration_min, 1),
-        "total_cells": total_cells,
-        "compromised_cells": compromised_count,
-        "route_coordinates": simplified_coords_list,
-        "compromised_segments": compromised_segments,
-        "directions": all_directions,
-    }
+        overall_status = "clear"
 
     return {
         "source": source,
         "total_destinations": len(destinations),
-        "status": status,
-        "routes": [chained_result],
+        "status": overall_status,
+        "destination_results": destination_results, # Per-destination status flags
+        "metrics": {
+            "total_distance_km": round(total_distance_km, 2),
+            "total_duration_min": round(total_duration_min, 1),
+        },
+        "route_coordinates": all_simplified_coords,
+        "compromised_segments": all_compromised_segments,
+        "directions": all_directions,
         "analyzed_at": datetime.now(timezone.utc).isoformat(),
     }

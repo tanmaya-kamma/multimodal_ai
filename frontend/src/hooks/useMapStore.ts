@@ -38,12 +38,12 @@ const defaultLayers: LayerVisibility = {
   majorRoads: true,
   secondaryRoads: true,
   railways: true,
-  heatmap: false,
+  heatmap: true,
   pois: true,
 };
 
 export const useMapStore = create<MapState>((set) => ({
-  activeView: 'supply-map',
+  activeView: 'command-center',
   selectedCell: null,
   isDrawerOpen: false,
   layerVisibility: { ...defaultLayers },

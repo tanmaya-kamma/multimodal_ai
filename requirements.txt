@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+httpx
+h3
+pydantic
+numpy
+opencv-python
+feedparser
+python-multipart
+python-dotenv
+sqlite3 # built-in but good to keep in mind

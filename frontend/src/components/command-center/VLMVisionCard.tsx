@@ -110,8 +110,13 @@ export const VLMVisionCard: React.FC = () => {
 
   const baseUrl = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000';
   const getAbsoluteUrl = (path: string) => {
+    if (!path) return '';
     if (path.startsWith('http')) return path;
-    const cleanPath = path.replace(/^(\/|\\)?static(\/|\\)/, '');
+    // Normalize slashes and remove common relative prefixes to ensure /static/ exposure
+    const cleanPath = path
+      .replace(/\\/g, '/')
+      .replace(/^(app\/static\/|static\/|\/static\/|\/)/, '');
+    
     return `${baseUrl}/static/${cleanPath}`;
   };
 
