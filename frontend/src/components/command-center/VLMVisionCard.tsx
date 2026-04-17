@@ -66,12 +66,12 @@ export const VLMVisionCard: React.FC = () => {
     );
   }
 
-  // Find all traffic signals that have an image
-  const vlmSignals = cellDetail?.signals?.traffic?.filter((s) => s.image) || [];
+  // Find all traffic signals that have an image and physical evidence
+  const vlmSignals = cellDetail?.signals?.traffic?.filter((s) => s.image && s.has_visual_evidence) || [];
   const latestSignal = vlmSignals[0];
   const baselineSignal = vlmSignals.length > 1 ? vlmSignals[1] : null;
 
-  if (!latestSignal || !latestSignal.image) {
+  if (!latestSignal || !latestSignal.image || !latestSignal.has_visual_evidence) {
     return (
       <GlassCard
         animation="none"

@@ -45,7 +45,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_PATH)), name="static")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -241,7 +241,7 @@ async def get_heatmap():
     and hexagon boundary coordinates for map overlay.
     """
     import sqlite3
-    db_path = STATIC_DIR.parent / "supply_chain.db"
+    db_path = DATA_STATIC_DIR.parent / "supply_chain.db"
     conn = sqlite3.connect(db_path)
 
     # Get highest severity per cell (deduplicated)
@@ -260,6 +260,7 @@ async def get_heatmap():
             "h3_cell": h3_cell,
             "tier": tier,
             "severity": severity,
+            "combined_severity": severity,
             "boundary": [{"lat": lat, "lon": lon} for lat, lon in boundary],
         })
 
@@ -407,13 +408,26 @@ async def get_cell_detail(h3_cell: str):
         ).fetchall()
     ]
 
-    traffic = [
-        {"camera_id": r[0], "congestion": r[1], "anomaly": r[2], "image": r[3], "severity": r[4], "timestamp": r[5]}
-        for r in conn.execute(
-            "SELECT camera_id, congestion_level, anomaly_type, image_path, severity, timestamp_utc FROM processed_traffic WHERE h3_cell = ?",
-            (h3_cell,)
-        ).fetchall()
-    ]
+    traffic = []
+    for r in conn.execute(
+        "SELECT camera_id, congestion_level, anomaly_type, image_path, severity, timestamp_utc FROM processed_traffic WHERE h3_cell = ?",
+        (h3_cell,)
+    ).fetchall():
+        # Check if physical asset exists in SIMULATION_DIR
+        has_visual = False
+        if r[3]:
+             img_filename = Path(r[3]).name
+             has_visual = (SIMULATION_DIR / img_filename).exists()
+             
+        traffic.append({
+            "camera_id": r[0],
+            "congestion": r[1],
+            "anomaly": r[2],
+            "image": r[3],
+            "has_visual_evidence": has_visual,
+            "severity": r[4],
+            "timestamp": r[5]
+        })
 
     news = [
         {"source": r[0], "title": r[1], "location": r[2], "event_type": r[3], "severity": r[4], "timestamp": r[5]}

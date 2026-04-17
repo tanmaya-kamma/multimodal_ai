@@ -257,8 +257,9 @@ export interface GeocodedLocation {
 
 export interface AnalyzedRoute {
   source: GeocodedLocation;
-  destination: GeocodedLocation;
-  status: 'clear' | 'partially_compromised' | 'severely_compromised' | 'route_not_found';
+  destination: GeocodedLocation; // Terminal destination
+  destinations?: GeocodedLocation[]; // Full chain
+  status: 'clear' | 'partially_compromised' | 'severely_compromised' | 'route_not_found' | 'unreachable';
   distance_km: number;
   duration_min: number;
   total_cells: number;

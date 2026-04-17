@@ -90,7 +90,7 @@ export const RoadLayer: React.FC<RoadLayerProps> = ({ map, majorData, secondaryD
             defaultWidth
           ],
           'line-opacity': isRailway ? 0.5 : 0.85,
-          'line-dasharray': isRailway ? [3, 3] : undefined
+          'line-dasharray': isRailway ? [3, 3] : ([1, 0])
         }
       });
     }

@@ -70,7 +70,7 @@ export const MapContainer: React.FC = () => {
         <>
           <BoundaryLayer map={map} data={staticData.boundary} />
           {/* Heatmap rendered first so it sits beneath roads and POIs */}
-          <HeatmapLayer map={map} />
+          <HeatmapLayer map={map} beforeId="major-roads-layer" />
           <RoadLayer 
             map={map} 
             majorData={staticData.majorRoads} 

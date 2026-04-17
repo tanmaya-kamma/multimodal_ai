@@ -21,26 +21,40 @@ export const RouteAnalysisLayer: React.FC<RouteAnalysisLayerProps> = ({ map, rou
 
     const { clearGeoJSON, compromisedGeoJSON, markersGeoJSON } = routesToGeoJSON(routeData.routes);
 
-    // 1. Clear Routes Source
+    // 1. Clear Routes Source — Solaris Optimal with Glow
     if (!map.getSource('route-clear-source')) {
       map.addSource('route-clear-source', { type: 'geojson', data: clearGeoJSON });
+      
+      // Outer glow layer
+      map.addLayer({
+        id: 'route-clear-glow',
+        type: 'line',
+        source: 'route-clear-source',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#34D399',
+          'line-width': 8,
+          'line-blur': 6,
+          'line-opacity': 0.3
+        }
+      });
+
       map.addLayer({
         id: 'route-clear-layer',
         type: 'line',
         source: 'route-clear-source',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
-          'line-color': 'var(--neon-green)',
-          'line-width': 4,
-          'line-opacity': 0.7,
-          'line-blur': 2
+          'line-color': '#34D399',
+          'line-width': 3,
+          'line-opacity': 0.9
         }
       });
     } else {
       (map.getSource('route-clear-source') as maplibregl.GeoJSONSource).setData(clearGeoJSON);
     }
 
-    // 2. Compromised Routes Source
+    // 2. Compromised Routes Source — Solaris Critical
     if (!map.getSource('route-compromised-source')) {
       map.addSource('route-compromised-source', { type: 'geojson', data: compromisedGeoJSON });
       map.addLayer({
@@ -49,10 +63,10 @@ export const RouteAnalysisLayer: React.FC<RouteAnalysisLayerProps> = ({ map, rou
         source: 'route-compromised-source',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
-          'line-color': 'var(--neon-red)',
+          'line-color': '#F87171',
           'line-width': 5,
           'line-blur': 4,
-          'line-opacity': 0.5 // Initial, animated below
+          'line-opacity': 0.5
         }
       });
     } else {
@@ -68,10 +82,10 @@ export const RouteAnalysisLayer: React.FC<RouteAnalysisLayerProps> = ({ map, rou
         source: 'route-trail-source',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
-          'line-color': 'var(--status-neutral)',
-          'line-width': 4,
-          'line-opacity': 0.8,
-          'line-blur': 1
+          'line-color': '#FFFFFF',
+          'line-width': 2,
+          'line-opacity': 0.6,
+          'line-blur': 0.5
         }
       });
     }
@@ -84,10 +98,10 @@ export const RouteAnalysisLayer: React.FC<RouteAnalysisLayerProps> = ({ map, rou
         type: 'circle',
         source: 'route-truck-source',
         paint: {
-          'circle-radius': 6,
+          'circle-radius': 5,
           'circle-color': '#FFFFFF',
-          'circle-stroke-width': 3,
-          'circle-stroke-color': 'var(--status-neutral)',
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#34D399',
           'circle-pitch-alignment': 'map'
         }
       });
@@ -103,10 +117,10 @@ export const RouteAnalysisLayer: React.FC<RouteAnalysisLayerProps> = ({ map, rou
         paint: {
           'circle-radius': ['case', ['==', ['get', 'type'], 'source'], 6, 5],
           'circle-color': ['case', 
-            ['==', ['get', 'type'], 'source'], 'var(--accent-cyan)',
-            ['==', ['get', 'status'], 'severely_compromised'], 'var(--status-critical)',
-            ['==', ['get', 'status'], 'partially_compromised'], 'var(--status-warning)',
-            'var(--status-none)'
+            ['==', ['get', 'type'], 'source'], '#67e8f9',
+            ['==', ['get', 'status'], 'severely_compromised'], '#F87171',
+            ['==', ['get', 'status'], 'partially_compromised'], '#FB923C',
+            '#34D399'
           ],
           'circle-stroke-width': 2,
           'circle-stroke-color': '#000'
@@ -228,11 +242,25 @@ export const RouteAnalysisLayer: React.FC<RouteAnalysisLayerProps> = ({ map, rou
 };
 
 function removeLayers(map: maplibregl.Map) {
-  const layers = ['route-clear-layer', 'route-compromised-layer', 'route-markers-layer', 'route-trail-layer', 'route-truck-layer'];
-  layers.forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
+  if (!map || !map.getStyle()) return;
+
+  const layers = ['route-clear-layer', 'route-clear-glow', 'route-compromised-layer', 'route-markers-layer', 'route-trail-layer', 'route-truck-layer'];
+  layers.forEach(l => { 
+    try {
+      if (map.getLayer(l)) map.removeLayer(l); 
+    } catch (e) {
+      console.warn(`Failed to remove layer ${l}:`, e);
+    }
+  });
   
   const sources = ['route-clear-source', 'route-compromised-source', 'route-markers-source', 'route-trail-source', 'route-truck-source'];
-  sources.forEach(s => { if (map.getSource(s)) map.removeSource(s); });
+  sources.forEach(s => { 
+    try {
+      if (map.getSource(s)) map.removeSource(s); 
+    } catch (e) {
+      console.warn(`Failed to remove source ${s}:`, e);
+    }
+  });
 }
 
 function routesToGeoJSON(routes: AnalyzedRoute[]) {
@@ -281,7 +309,11 @@ function routesToGeoJSON(routes: AnalyzedRoute[]) {
     }
 
     addMarker(route.source, 'source');
-    addMarker(route.destination, 'destination', route.status);
+    if (route.destinations && route.destinations.length > 0) {
+      route.destinations.forEach(dest => addMarker(dest, 'destination', route.status));
+    } else {
+      addMarker(route.destination, 'destination', route.status);
+    }
   }
   
   return {

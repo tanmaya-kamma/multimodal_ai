@@ -65,6 +65,7 @@ export function h3ToGeoJsonPolygon(h3Index: string, severityLevel: number, tierL
     properties: {
       h3_cell: h3Index,
       severity: severityLevel,
+      combined_severity: severityLevel,
       tier: tierLevel
     },
     geometry: {
@@ -91,6 +92,7 @@ export function heatMapToGeoJson(cells: HeatmapCell[]) {
          properties: {
            h3_cell: cell.h3_cell,
            severity: cell.severity,
+           combined_severity: cell.severity,
            tier: cell.tier
          },
          geometry: {

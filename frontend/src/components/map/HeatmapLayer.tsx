@@ -5,9 +5,10 @@ import { useMapStore } from '../../hooks/useMapStore';
 
 interface HeatmapLayerProps {
   map: maplibregl.Map;
+  beforeId?: string;
 }
 
-export const HeatmapLayer: React.FC<HeatmapLayerProps> = ({ map }) => {
+export const HeatmapLayer: React.FC<HeatmapLayerProps> = ({ map, beforeId }) => {
   const { data } = useHeatmap();
   const { layerVisibility, selectedCell, selectCell } = useMapStore();
   const visible = layerVisibility.heatmap;
@@ -26,32 +27,26 @@ export const HeatmapLayer: React.FC<HeatmapLayerProps> = ({ map }) => {
         data: data.geojson as GeoJSON.FeatureCollection
       });
 
-      // Fill Layer — Solaris Clay status colors
+      // Fill Layer — Precision Step-Function Logic
       map.addLayer({
         id: fillLayerId,
         type: 'fill',
         source: sourceId,
         paint: {
           'fill-color': [
-             'let', 'sev', ['get', 'severity'],
-             ['case',
-               ['>=', ['var', 'sev'], 0.7], '#F87171',   // Critical
-               ['>=', ['var', 'sev'], 0.45], '#FBBF24',  // Watch
-               ['>=', ['var', 'sev'], 0.25], '#34D399',  // Optimal
-               '#34D399'                                   // Default
-             ]
+            'step', ['get', 'combined_severity'],
+            'rgba(52, 211, 153, 0.2)', // 0.0 - 0.3: Transparent Light Green
+            0.3, '#FBBF24',            // 0.3 - 0.7: Solaris Yellow
+            0.7, '#F87171'             // 0.7 - 1.0: Solaris Red
           ],
           'fill-opacity': [
-             'let', 'sev', ['get', 'severity'],
-             ['case',
-               ['>=', ['var', 'sev'], 0.7], 0.75,
-               ['>=', ['var', 'sev'], 0.45], 0.5,
-               ['>=', ['var', 'sev'], 0.25], 0.3,
-               0.12
-             ]
+            'case',
+            ['>', ['get', 'combined_severity'], 0],
+            0.6, // Enforce 0.6 minimum for active cells
+            0.05 // Background ghosting for inactive
           ]
         }
-      });
+      }, beforeId); 
 
       // Outline Layer
       map.addLayer({
@@ -60,17 +55,21 @@ export const HeatmapLayer: React.FC<HeatmapLayerProps> = ({ map }) => {
         source: sourceId,
         paint: {
           'line-color': '#ffffff',
-          'line-opacity': 0.12,
+          'line-opacity': [
+            'step', ['get', 'combined_severity'],
+            0.05, 
+            0.7, 0.2
+          ],
           'line-width': 1
         }
-      });
+      }, beforeId || highlightLayerId); 
 
       // Pulse glow for high-severity cells
       map.addLayer({
         id: 'h3-heatmap-pulse',
         type: 'line',
         source: sourceId,
-        filter: ['>=', ['get', 'severity'], 0.8],
+        filter: ['>=', ['get', 'severity'], 0.7],
         paint: {
           'line-color': '#F87171',
           'line-width': 4,

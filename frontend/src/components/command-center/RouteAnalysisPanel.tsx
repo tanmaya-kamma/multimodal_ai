@@ -168,7 +168,11 @@ export const RouteAnalysisPanel: React.FC = () => {
                 }` 
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                  <span style={{ fontSize: '12px', fontWeight: 600 }}>{r.destination.name}</span>
+                  <span style={{ fontSize: '12px', fontWeight: 600 }}>
+                    {r.destinations?.length 
+                      ? r.destinations.map(d => d?.name || 'Unknown Destination').join(' \u2794 ')
+                      : (r.destination?.name || 'Unknown Destination')}
+                  </span>
                   <span className="mono" style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{(r.distance_km).toFixed(1)}km</span>
                 </div>
                 <div style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>

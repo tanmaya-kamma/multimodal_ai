@@ -176,169 +176,139 @@ def get_disrupted_cells(conn) -> dict:
 
 
 # ──────────────────────────────────────────────
-# Step 4: Build route segments with status
-# ──────────────────────────────────────────────
-def analyze_single_route(source: dict, destination: dict, disrupted_cells: dict) -> dict | None:
-    """Analyze one source→destination route."""
-    
-    # Get driving route
-    route = get_route(source, destination)
-    if not route:
-        return {
-            "source": source,
-            "destination": destination,
-            "status": "route_not_found",
-            "error": "Could not find a driving route between these points",
-        }
-
-    # H3 index the route (use full detail for accuracy)
-    segments = h3_index_route(route["full_coordinates"])
-
-    # Check each segment against disrupted cells
-    route_cells = []
-    seen_cells = set()
-    compromised_count = 0
-
-    for seg in segments:
-        cell = seg["h3_cell"]
-        
-        if cell in seen_cells:
-            continue
-        seen_cells.add(cell)
-
-        disruption = disrupted_cells.get(cell)
-        
-        if disruption:
-            compromised_count += 1
-            route_cells.append({
-                "h3_cell": cell,
-                "status": "compromised",
-                "alert_tier": disruption["tier"],
-                "severity": disruption["severity"],
-                "description": disruption["description"],
-            })
-        else:
-            route_cells.append({
-                "h3_cell": cell,
-                "status": "clear",
-            })
-
-    # Build compromised segments (consecutive coordinates in bad cells)
-    compromised_segments = []
-    current_segment = []
-    
-    for seg in segments:
-        disruption = disrupted_cells.get(seg["h3_cell"])
-        if disruption:
-            current_segment.append(seg["start"])
-            current_segment.append(seg["end"])
-        else:
-            if current_segment:
-                # Deduplicate consecutive points
-                deduped = [current_segment[0]]
-                for pt in current_segment[1:]:
-                    if pt != deduped[-1]:
-                        deduped.append(pt)
-                compromised_segments.append({
-                    "coordinates": simplify_coords(deduped),
-                    "severity": max(
-                        disrupted_cells.get(
-                            h3.latlng_to_cell(pt["lat"], pt["lon"], H3_RESOLUTION), {}
-                        ).get("severity", 0)
-                        for pt in deduped
-                    ),
-                })
-                current_segment = []
-
-    # Don't forget the last segment
-    if current_segment:
-        deduped = [current_segment[0]]
-        for pt in current_segment[1:]:
-            if pt != deduped[-1]:
-                deduped.append(pt)
-        compromised_segments.append({
-            "coordinates": simplify_coords(deduped),
-            "severity": max(
-                disrupted_cells.get(
-                    h3.latlng_to_cell(pt["lat"], pt["lon"], H3_RESOLUTION), {}
-                ).get("severity", 0)
-                for pt in deduped
-            ),
-        })
-
-    # Simplify compromised segment coordinates
-    for seg in compromised_segments:
-        seg["coordinates"] = simplify_coords(seg["coordinates"])
-
-    total_cells = len(seen_cells)
-    
-    # Overall route status
-    if compromised_count == 0:
-        overall_status = "clear"
-    elif compromised_count / total_cells > 0.5:
-        overall_status = "severely_compromised"
-    elif compromised_count > 0:
-        overall_status = "partially_compromised"
-    else:
-        overall_status = "clear"
-
-    # Clean up steps — remove empty road names
-    clean_steps = [
-        s for s in route["steps"]
-        if s["road_name"] and s["instruction"] not in ("arrive",)
-    ]
-
-    return {
-        "source": source,
-        "destination": destination,
-        "status": overall_status,
-        "distance_km": route["distance_km"],
-        "duration_min": route["duration_min"],
-        "total_cells": total_cells,
-        "compromised_cells": compromised_count,
-        "route_coordinates": route["coordinates"],  # already simplified
-        "compromised_segments": compromised_segments,
-        "directions": clean_steps,
-    }
-
-
-# ──────────────────────────────────────────────
-# Main: Analyze all routes from source to destinations
+# Step 4: Build Sequential Route Analysis
 # ──────────────────────────────────────────────
 def analyze_routes(source: dict, destinations: list) -> dict:
     """
-    Analyze supply routes from one source to multiple destinations.
-    
-    Args:
-        source: {"name": "...", "lat": ..., "lon": ...}
-        destinations: [{"name": "...", "lat": ..., "lon": ...}, ...]
-    
-    Returns complete route analysis with compromised segments.
+    Analyze sequential supply route: Source -> Dest1 -> Dest2 -> ... -> DestN.
     """
     conn = get_db()
     if not conn:
         return {"error": "Database not found"}
 
-    # Get all disrupted cells
     disrupted_cells = get_disrupted_cells(conn)
     conn.close()
 
-    routes = []
-    total_compromised = 0
+    full_coords = []
+    simplified_coords_list = []
+    all_segments = []
+    total_distance_km = 0
+    total_duration_min = 0
+    all_directions = []
+    
+    current_point = source
+    status = "clear"
+    compromised_count = 0
+    seen_cells = set()
+    
+    unreachable_segment = None
 
-    for dest in destinations:
-        result = analyze_single_route(source, dest, disrupted_cells)
-        if result:
-            routes.append(result)
-            if result.get("compromised_cells", 0) > 0:
-                total_compromised += 1
+    for i, dest in enumerate(destinations):
+        # Get segment route
+        route = get_route(current_point, dest)
+        
+        if not route:
+            status = "unreachable"
+            unreachable_segment = f"{current_point.get('name', 'Point ' + str(i))} \u2794 {dest.get('name', 'Point ' + str(i+1))}"
+            break
+        
+        # Accumulate metrics
+        total_distance_km += route["distance_km"]
+        total_duration_min += route["duration_min"]
+        
+        # Clean directions for this segment
+        clean_steps = [
+            s for s in route["steps"]
+            if s["road_name"] and s["instruction"] not in ("arrive",)
+        ]
+        all_directions.extend(clean_steps)
+        
+        # Index this segment
+        seg_h3 = h3_index_route(route["full_coordinates"])
+        all_segments.extend(seg_h3)
+        
+        # Track coordinates
+        if full_coords:
+            full_coords.extend(route["full_coordinates"][1:])
+            simplified_coords_list.extend(route["coordinates"][1:])
+        else:
+            full_coords.extend(route["full_coordinates"])
+            simplified_coords_list.extend(route["coordinates"])
+            
+        current_point = dest
+
+    if status == "unreachable":
+        return {
+            "source": source,
+            "status": "unreachable",
+            "error": f"Route segment {unreachable_segment} is unreachable via road network.",
+            "analyzed_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    # Analyze H3 footprint for entire chain
+    for seg in all_segments:
+        cell = seg["h3_cell"]
+        if cell in seen_cells:
+            continue
+        seen_cells.add(cell)
+        
+        disruption = disrupted_cells.get(cell)
+        if disruption:
+            compromised_count += 1
+
+    # Build compromised GL segments
+    compromised_segments = []
+    curr_comp = []
+    
+    for seg in all_segments:
+        disruption = disrupted_cells.get(seg["h3_cell"])
+        if disruption:
+            curr_comp.append(seg["start"])
+            curr_comp.append(seg["end"])
+        else:
+            if curr_comp:
+                deduped = [curr_comp[0]]
+                for pt in curr_comp[1:]:
+                    if pt != deduped[-1]: deduped.append(pt)
+                compromised_segments.append({
+                    "coordinates": simplify_coords(deduped),
+                    "severity": 0.8 # High visual pulse
+                })
+                curr_comp = []
+    
+    if curr_comp:
+        deduped = [curr_comp[0]]
+        for pt in curr_comp[1:]:
+            if pt != deduped[-1]: deduped.append(pt)
+        compromised_segments.append({"coordinates": simplify_coords(deduped), "severity": 0.8})
+
+    # Final overall status
+    total_cells = len(seen_cells)
+    if compromised_count == 0:
+        status = "clear"
+    elif compromised_count / max(1, total_cells) > 0.4:
+        status = "severely_compromised"
+    else:
+        status = "partially_compromised"
+
+    # Single 'chained' result object
+    chained_result = {
+        "source": source,
+        "destinations": destinations,
+        "status": status,
+        "distance_km": round(total_distance_km, 2),
+        "duration_min": round(total_duration_min, 1),
+        "total_cells": total_cells,
+        "compromised_cells": compromised_count,
+        "route_coordinates": simplified_coords_list,
+        "compromised_segments": compromised_segments,
+        "directions": all_directions,
+    }
 
     return {
         "source": source,
         "total_destinations": len(destinations),
-        "total_routes": len(routes),
-        "compromised_routes": total_compromised,
-        "disrupted_cells_on_map": len(disrupted_cells),
-        "routes": routes,
+        "status": status,
+        "routes": [chained_result],
         "analyzed_at": datetime.now(timezone.utc).isoformat(),
     }
