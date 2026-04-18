@@ -106,6 +106,7 @@ export interface TrafficSignal {
   image: string | null;
   severity: number;
   timestamp: string;
+  has_visual_evidence?: boolean;
 }
 
 export interface NewsSignal {
@@ -240,12 +241,16 @@ export interface RouteAnalysisRequest {
 export interface RouteAnalysisResponse {
   source: GeocodedLocation;
   total_destinations: number;
-  total_routes: number;
-  compromised_routes: number;
-  disrupted_cells_on_map: number;
-  routes: AnalyzedRoute[];
+  total_legs: number;
+  compromised_legs: number;
+  disrupted_cells_on_route: number;
+  status: 'clear' | 'partially_compromised' | 'severely_compromised' | 'unreachable';
+  legs: RouteLeg[];
+  metrics: {
+    total_distance_km: number;
+    total_duration_min: number;
+  };
   analyzed_at: string;
-  geocoding_failures?: string[];
 }
 
 export interface GeocodedLocation {
@@ -255,19 +260,29 @@ export interface GeocodedLocation {
   resolved_address?: string;
 }
 
-export interface AnalyzedRoute {
+export interface RouteLeg {
   source: GeocodedLocation;
-  destination: GeocodedLocation; // Terminal destination
-  destinations?: GeocodedLocation[]; // Full chain
+  destination: GeocodedLocation;
+  primary_route: AnalyzedRoute;
+  alternate_route: AnalyzedRoute | null;
+  alternate_note?: string;
+}
+
+export interface AnalyzedRoute {
   status: 'clear' | 'partially_compromised' | 'severely_compromised' | 'route_not_found' | 'unreachable';
   distance_km: number;
   duration_min: number;
   total_cells: number;
   compromised_cells: number;
+  total_severity: number;
   route_coordinates: Coordinates[];
   compromised_segments: CompromisedSegment[];
   directions: RouteStep[];
+  reason?: string;
   error?: string;
+  source?: GeocodedLocation;
+  destination?: GeocodedLocation;
+  destinations?: GeocodedLocation[];
 }
 
 export interface CompromisedSegment {

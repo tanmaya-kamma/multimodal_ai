@@ -21,6 +21,7 @@ interface MapState {
   routeData: RouteAnalysisResponse | null;
   showSimPanel: boolean;
   showLayerPanel: boolean;
+  selectedRouteIndices: Record<number, 'primary' | 'alternate'>;
   
   // Actions
   setActiveView: (view: ActiveView) => void;
@@ -29,6 +30,7 @@ interface MapState {
   setDrawerOpen: (isOpen: boolean) => void;
   toggleRoutePanel: () => void;
   setRouteData: (data: RouteAnalysisResponse | null) => void;
+  setLegRouteSelection: (legIndex: number, type: 'primary' | 'alternate') => void;
   toggleSimPanel: () => void;
   toggleLayerPanel: () => void;
 }
@@ -51,6 +53,7 @@ export const useMapStore = create<MapState>((set) => ({
   routeData: null,
   showSimPanel: false,
   showLayerPanel: false,
+  selectedRouteIndices: {},
   
   setActiveView: (view: ActiveView) => set((state) => {
     // Automatically adjust layers based on the view
@@ -100,7 +103,18 @@ export const useMapStore = create<MapState>((set) => ({
     showLayerPanel: false,
   })),
   
-  setRouteData: (data) => set({ routeData: data }),
+  setRouteData: (data) => set({ 
+    routeData: data,
+    // Default to primary for all legs on new data
+    selectedRouteIndices: {}
+  }),
+
+  setLegRouteSelection: (legIndex, type) => set((state) => ({
+    selectedRouteIndices: {
+      ...state.selectedRouteIndices,
+      [legIndex]: type
+    }
+  })),
   
   toggleSimPanel: () => set((state) => ({ 
     showSimPanel: !state.showSimPanel,

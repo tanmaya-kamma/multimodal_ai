@@ -1,7 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import maplibregl from 'maplibre-gl';
 import { RouteAnalysisResponse, AnalyzedRoute } from '../../lib/types';
 import { coordinateToH3Index } from '../../lib/h3-utils';
+import { useMapStore } from '../../hooks/useMapStore';
 
 interface RouteAnalysisLayerProps {
   map: maplibregl.Map;
@@ -11,15 +12,36 @@ interface RouteAnalysisLayerProps {
 export const RouteAnalysisLayer: React.FC<RouteAnalysisLayerProps> = ({ map, routeData }) => {
   const animationFrameRef = useRef<number | undefined>(undefined);
   const startTimeRef = useRef<number>(Date.now());
+  const { selectedRouteIndices } = useMapStore();
+
+  // Compute the active routes whenever data or selection changes
+  // Filter out unreachable routes that have no coordinates (Bug 7)
+  const activeRoutes = useMemo(() => {
+    if (!routeData || !routeData.legs) return [];
+    
+    return routeData.legs
+      .map((leg, idx) => {
+        const type = selectedRouteIndices[idx] || 'primary';
+        const route = type === 'alternate' && leg.alternate_route ? leg.alternate_route : leg.primary_route;
+        
+        // Inject source/destination for marker addition in geoprocessing
+        return {
+          ...route,
+          source: leg.source,
+          destination: leg.destination
+        };
+      })
+      .filter(route => route.status !== 'unreachable' && route.route_coordinates && route.route_coordinates.length > 0);
+  }, [routeData, selectedRouteIndices]);
 
   useEffect(() => {
-    if (!map || !routeData) {
+    if (!map || !routeData || activeRoutes.length === 0) {
       removeLayers(map);
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       return;
     }
 
-    const { clearGeoJSON, compromisedGeoJSON, markersGeoJSON } = routesToGeoJSON(routeData.routes);
+    const { clearGeoJSON, compromisedGeoJSON, markersGeoJSON } = routesToGeoJSON(activeRoutes);
 
     // 1. Clear Routes Source — Solaris Optimal with Glow
     if (!map.getSource('route-clear-source')) {
@@ -148,8 +170,8 @@ export const RouteAnalysisLayer: React.FC<RouteAnalysisLayerProps> = ({ map, rou
       const truckFeatures: GeoJSON.Feature[] = [];
       const trailFeatures: GeoJSON.Feature[] = [];
 
-      routeData.routes.forEach(route => {
-        if (route.status === 'route_not_found' || route.route_coordinates.length < 2) return;
+      activeRoutes.forEach(route => {
+        if (route.status === 'route_not_found' || !route.route_coordinates || route.route_coordinates.length < 2) return;
         
         const coords = route.route_coordinates;
         const totalPoints = coords.length;
@@ -230,8 +252,9 @@ export const RouteAnalysisLayer: React.FC<RouteAnalysisLayerProps> = ({ map, rou
       map.off('mouseenter', 'route-markers-layer', handleMouseEnter);
       map.off('mouseleave', 'route-markers-layer', handleMouseLeave);
       popup.remove();
+      removeLayers(map);
     };
-  }, [map, routeData]);
+  }, [map, routeData, activeRoutes]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -282,10 +305,10 @@ function routesToGeoJSON(routes: AnalyzedRoute[]) {
   };
 
   for (const route of routes) {
-    if (route.status === 'route_not_found') continue;
+    if (route.status === 'route_not_found' || route.status === 'unreachable') continue;
 
-    // Full route line
-    if (route.route_coordinates.length > 0) {
+    // Full route line — guard against missing coordinates
+    if (route.route_coordinates && route.route_coordinates.length > 0) {
       clearFeatures.push({
         type: 'Feature',
         properties: { status: route.status, type: 'route' },
@@ -296,8 +319,8 @@ function routesToGeoJSON(routes: AnalyzedRoute[]) {
       });
     }
     
-    // Compromised segments overlays
-    for (const seg of route.compromised_segments) {
+    // Compromised segments overlays — guard against missing array
+    for (const seg of (route.compromised_segments || [])) {
       compromisedFeatures.push({
         type: 'Feature',
         properties: { type: 'compromised', severity: seg.severity },
@@ -308,10 +331,10 @@ function routesToGeoJSON(routes: AnalyzedRoute[]) {
       });
     }
 
-    addMarker(route.source, 'source');
+    if (route.source) addMarker(route.source, 'source');
     if (route.destinations && route.destinations.length > 0) {
-      route.destinations.forEach(dest => addMarker(dest, 'destination', route.status));
-    } else {
+      route.destinations.forEach((dest: any) => addMarker(dest, 'destination', route.status));
+    } else if (route.destination) {
       addMarker(route.destination, 'destination', route.status);
     }
   }

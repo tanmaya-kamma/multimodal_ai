@@ -76,7 +76,6 @@ export const MapContainer: React.FC = () => {
             majorData={staticData.majorRoads} 
             secondaryData={staticData.secondaryRoads} 
             railwayData={staticData.railways}
-            zoom={zoom}
           />
           <POIMarkers 
             map={map} 

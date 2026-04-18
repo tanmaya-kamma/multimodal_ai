@@ -8,7 +8,6 @@ interface RoadLayerProps {
   majorData?: RoadData;
   secondaryData?: RoadData;
   railwayData?: any; // Reusing this for railways too
-  zoom: number;
 }
 
 const ROAD_COLORS: Record<string, string> = {
@@ -24,7 +23,7 @@ const ROAD_COLORS: Record<string, string> = {
 /** Zoom threshold: secondary roads and railways only render at zoom >= 13 */
 const DETAIL_MIN_ZOOM = 13;
 
-export const RoadLayer: React.FC<RoadLayerProps> = ({ map, majorData, secondaryData, railwayData, zoom }) => {
+export const RoadLayer: React.FC<RoadLayerProps> = ({ map, majorData, secondaryData, railwayData }) => {
   const { majorRoads, secondaryRoads, railways } = useMapStore(state => state.layerVisibility);
 
   // Helper to build and manage a layer

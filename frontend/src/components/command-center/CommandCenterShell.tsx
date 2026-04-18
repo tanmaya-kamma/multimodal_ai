@@ -9,6 +9,7 @@ import { DisasterInjectorPanel } from './DisasterInjectorPanel';
 import { RightToolbar } from './RightToolbar';
 import { MapControlsSlideOut } from '../map/MapControls';
 import { useMapStore } from '../../hooks/useMapStore';
+import { ErrorBoundary } from '../ErrorBoundary';
 
 /**
  * CommandCenterShell — Solaris Clay / Bento Grid 2.0
@@ -34,6 +35,7 @@ export const CommandCenterShell: React.FC = () => {
   const showLayerPanel = useMapStore(s => s.showLayerPanel);
 
   return (
+    <ErrorBoundary fallbackMessage="The Command Center encountered an error. Click Retry to recover.">
     <div style={{
       position: 'relative',
       width: '100vw',
@@ -87,6 +89,8 @@ export const CommandCenterShell: React.FC = () => {
         bottom: '16px',
         width: '320px',
         zIndex: 150,
+        display: 'flex',
+        flexDirection: 'column',
       }}>
         {/* Only one slide-out open at a time. Layer panel has lower priority. */}
         <MapControlsSlideOut isOpen={showLayerPanel && !showRoutePanel && !showSimPanel} />
@@ -94,5 +98,6 @@ export const CommandCenterShell: React.FC = () => {
         {showSimPanel && <DisasterInjectorPanel />}
       </div>
     </div>
+    </ErrorBoundary>
   );
 };
