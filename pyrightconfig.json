@@ -1,0 +1,11 @@
+{
+  "include": ["app"],
+  "extraPaths": [
+    "app/fusion",
+    "app/simulation"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "reportMissingImports": "warning",
+  "pythonVersion": "3.12"
+}

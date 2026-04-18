@@ -1,6 +1,7 @@
 import { create } from 'zustand';
+import { RouteAnalysisResponse } from '../lib/types';
 
-export type ActiveView = 'supply-map' | 'heatmap' | 'road-network' | 'alerts';
+export type ActiveView = 'supply-map' | 'heatmap' | 'road-network' | 'alerts' | 'command-center';
 
 interface LayerVisibility {
   boundary: boolean;
@@ -16,12 +17,22 @@ interface MapState {
   selectedCell: string | null;
   isDrawerOpen: boolean;
   layerVisibility: LayerVisibility;
+  showRoutePanel: boolean;
+  routeData: RouteAnalysisResponse | null;
+  showSimPanel: boolean;
+  showLayerPanel: boolean;
+  selectedRouteIndices: Record<number, 'primary' | 'alternate'>;
   
   // Actions
   setActiveView: (view: ActiveView) => void;
   selectCell: (cellId: string | null) => void;
   toggleLayer: (layer: keyof LayerVisibility) => void;
   setDrawerOpen: (isOpen: boolean) => void;
+  toggleRoutePanel: () => void;
+  setRouteData: (data: RouteAnalysisResponse | null) => void;
+  setLegRouteSelection: (legIndex: number, type: 'primary' | 'alternate') => void;
+  toggleSimPanel: () => void;
+  toggleLayerPanel: () => void;
 }
 
 const defaultLayers: LayerVisibility = {
@@ -29,15 +40,20 @@ const defaultLayers: LayerVisibility = {
   majorRoads: true,
   secondaryRoads: true,
   railways: true,
-  heatmap: false,
+  heatmap: true,
   pois: true,
 };
 
 export const useMapStore = create<MapState>((set) => ({
-  activeView: 'supply-map',
+  activeView: 'command-center',
   selectedCell: null,
   isDrawerOpen: false,
   layerVisibility: { ...defaultLayers },
+  showRoutePanel: false,
+  routeData: null,
+  showSimPanel: false,
+  showLayerPanel: false,
+  selectedRouteIndices: {},
   
   setActiveView: (view: ActiveView) => set((state) => {
     // Automatically adjust layers based on the view
@@ -52,6 +68,11 @@ export const useMapStore = create<MapState>((set) => ({
       newLayers.heatmap = false;
       newLayers.majorRoads = true;
       newLayers.secondaryRoads = true;
+    } else if (view === 'command-center') {
+      // Command center shows everything — heatmap + POIs + roads
+      newLayers.heatmap = true;
+      newLayers.pois = true;
+      newLayers.majorRoads = true;
     }
     
     return { activeView: view, layerVisibility: newLayers };
@@ -73,5 +94,39 @@ export const useMapStore = create<MapState>((set) => ({
       ...state.layerVisibility,
       [layer]: !state.layerVisibility[layer]
     }
+  })),
+
+  toggleRoutePanel: () => set((state) => ({ 
+    showRoutePanel: !state.showRoutePanel,
+    // Close other panels when opening routes
+    showSimPanel: false,
+    showLayerPanel: false,
+  })),
+  
+  setRouteData: (data) => set({ 
+    routeData: data,
+    // Default to primary for all legs on new data
+    selectedRouteIndices: {}
+  }),
+
+  setLegRouteSelection: (legIndex, type) => set((state) => ({
+    selectedRouteIndices: {
+      ...state.selectedRouteIndices,
+      [legIndex]: type
+    }
+  })),
+  
+  toggleSimPanel: () => set((state) => ({ 
+    showSimPanel: !state.showSimPanel,
+    // Close other panels when opening sim
+    showRoutePanel: false,
+    showLayerPanel: false,
+  })),
+  
+  toggleLayerPanel: () => set((state) => ({
+    showLayerPanel: !state.showLayerPanel,
+    // Close other panels when opening layers
+    showRoutePanel: false,
+    showSimPanel: false,
   })),
 }));

@@ -148,7 +148,7 @@ ACTION_MAP = {
 
 def get_db():
     if not DB_PATH.exists():
-        print(f"❌ Database not found at {DB_PATH}")
+        print(f"   [ERROR] Database not found at {DB_PATH}")
         return None
     return sqlite3.connect(DB_PATH)
 
@@ -688,7 +688,7 @@ def get_recommended_actions(primary_event: str, context: dict) -> list:
 # ──────────────────────────────────────────────
 def run_fusion() -> list:
     """Execute the full fusion pipeline. Returns list of alerts."""
-    print("\n🔮 Running Fusion Engine...\n")
+    print("\n   Running Fusion Engine...\n")
 
     conn = get_db()
     if not conn:
@@ -701,7 +701,7 @@ def run_fusion() -> list:
     print(f"        Found signals in {total_cells} H3 cells")
 
     if total_cells == 0:
-        print("\n  ℹ️  No recent signals found. Run data ingestion first.")
+        print("\n     No recent signals found. Run data ingestion first.")
         conn.close()
         return []
 
@@ -755,8 +755,8 @@ def run_fusion() -> list:
         alerts.append(alert)
 
         # Print
-        icon = {"CRITICAL": "🔴", "WARNING": "🟠", "WATCH": "🟡"}.get(tier, "⚪")
-        print(f"    {icon} {tier:8s} | sev={fusion['fused_severity']:.2f} | "
+        log_icon = {"CRITICAL": "[C]", "WARNING": "[W]", "WATCH": "[*]"}.get(tier, "[ ]")
+        print(f"    {log_icon} {tier:8s} | sev={fusion['fused_severity']:.2f} | "
               f"conf={fusion['fused_confidence']:.2f} | "
               f"sources={fusion['source_count']} | {location_text[:50]}")
 
@@ -800,25 +800,25 @@ def run_fusion() -> list:
         tier_counts[a["alert_tier"]] += 1
 
     print(f"\n{'=' * 60}")
-    print(f"  🔴 CRITICAL alerts: {tier_counts.get('CRITICAL', 0)}")
-    print(f"  🟠 WARNING alerts:  {tier_counts.get('WARNING', 0)}")
-    print(f"  🟡 WATCH alerts:    {tier_counts.get('WATCH', 0)}")
-    print(f"  📊 Total alerts:    {len(alerts)}")
+    print(f"  [C] CRITICAL alerts: {tier_counts.get('CRITICAL', 0)}")
+    print(f"  [W] WARNING alerts:  {tier_counts.get('WARNING', 0)}")
+    print(f"  [*] WATCH alerts:    {tier_counts.get('WATCH', 0)}")
+    print(f"      Total alerts:    {len(alerts)}")
     print(f"{'=' * 60}")
 
     # Print detailed alerts
     if alerts:
         print(f"\n  [5/5] Detailed Alerts:\n")
         for i, alert in enumerate(alerts, 1):
-            icon = {"CRITICAL": "🔴", "WARNING": "🟠", "WATCH": "🟡"}.get(alert["alert_tier"], "⚪")
-            print(f"  {'─' * 56}")
+            icon = {"CRITICAL": "[C]", "WARNING": "[W]", "WATCH": "[*]"}.get(alert["alert_tier"], "[ ]")
+            print(f"  {'-' * 56}")
             print(f"  {icon} Alert #{i}: {alert['alert_tier']}")
-            print(f"  {'─' * 56}")
-            print(f"  📍 Location:    {alert['location']}")
-            print(f"  📊 Severity:    {alert['severity']:.2f}")
-            print(f"  🎯 Confidence:  {alert['confidence']:.2f}")
-            print(f"  🔗 Sources:     {alert['source_count']} ({', '.join(alert['all_events'][:3])})")
-            print(f"  📝 Explanation: {alert['explanation'][:120]}...")
+            print(f"  {'-' * 56}")
+            print(f"      Location:    {alert['location']}")
+            print(f"      Severity:    {alert['severity']:.2f}")
+            print(f"      Confidence:  {alert['confidence']:.2f}")
+            print(f"      Sources:     {alert['source_count']} ({', '.join(alert['all_events'][:3])})")
+            print(f"      Explanation: {alert['explanation'][:120]}...")
 
             if alert["affected_pois"]:
                 poi_summary = []
@@ -828,16 +828,16 @@ def run_fusion() -> list:
                     poi_summary.append(f"{len(gas)} gas stations")
                 if grocery:
                     poi_summary.append(f"{len(grocery)} grocery stores")
-                print(f"  ⚠️  At risk:    {', '.join(poi_summary)}")
+                print(f"      At risk:    {', '.join(poi_summary)}")
 
-            print(f"\n  📋 Recommended Actions:")
+            print(f"\n      Recommended Actions:")
             for j, action in enumerate(alert["recommended_actions"][:4], 1):
                 print(f"     {j}. {action}")
 
-            print(f"\n  🔗 Source Evidence:")
+            print(f"\n      Source Evidence:")
             for link in alert["source_links"]:
                 print(f"     • {link['source_name']}: {link['description']}")
-                print(f"       → {link['link']}")
+                print(f"       -> {link['link']}")
             print()
 
     return alerts

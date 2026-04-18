@@ -23,7 +23,7 @@ def create_tables():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    print(f"\n🗄️  Setting up database at: {DB_PATH}\n")
+    print(f"\n[DB] Setting up database at: {DB_PATH}\n")
 
     # ──────────────────────────────────────────
     # RAW TABLES
@@ -38,7 +38,7 @@ def create_tables():
         fetched_at      TEXT DEFAULT CURRENT_TIMESTAMP
     );
     """)
-    print("  ✅ raw_weather")
+    print("  DONE: raw_weather")
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS raw_traffic (
@@ -51,7 +51,7 @@ def create_tables():
         fetched_at      TEXT DEFAULT CURRENT_TIMESTAMP
     );
     """)
-    print("  ✅ raw_traffic")
+    print("  DONE: raw_traffic")
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS raw_news (
@@ -66,7 +66,7 @@ def create_tables():
         fetched_at      TEXT DEFAULT CURRENT_TIMESTAMP
     );
     """)
-    print("  ✅ raw_news")
+    print("  DONE: raw_news")
 
     # ──────────────────────────────────────────
     # PROCESSED TABLES
@@ -86,7 +86,7 @@ def create_tables():
         created_at      TEXT DEFAULT CURRENT_TIMESTAMP
     );
     """)
-    print("  ✅ processed_weather")
+    print("  DONE: processed_weather")
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS processed_traffic (
@@ -102,7 +102,7 @@ def create_tables():
         created_at      TEXT DEFAULT CURRENT_TIMESTAMP
     );
     """)
-    print("  ✅ processed_traffic")
+    print("  DONE: processed_traffic")
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS processed_news (
@@ -120,7 +120,7 @@ def create_tables():
         created_at          TEXT DEFAULT CURRENT_TIMESTAMP
     );
     """)
-    print("  ✅ processed_news")
+    print("  DONE: processed_news")
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS processed_pois (
@@ -134,7 +134,7 @@ def create_tables():
         created_at      TEXT DEFAULT CURRENT_TIMESTAMP
     );
     """)
-    print("  ✅ processed_pois")
+    print("  DONE: processed_pois")
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS processed_roads (
@@ -147,7 +147,7 @@ def create_tables():
         created_at      TEXT DEFAULT CURRENT_TIMESTAMP
     );
     """)
-    print("  ✅ processed_roads")
+    print("  DONE: processed_roads")
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS processed_railways (
@@ -161,7 +161,7 @@ def create_tables():
         created_at      TEXT DEFAULT CURRENT_TIMESTAMP
     );
     """)
-    print("  ✅ processed_railways")
+    print("  DONE: processed_railways")
 
     # ──────────────────────────────────────────
     # FUSION OUTPUT
@@ -182,7 +182,7 @@ def create_tables():
         created_at      TEXT DEFAULT CURRENT_TIMESTAMP
     );
     """)
-    print("  ✅ alerts")
+    print("  DONE: alerts")
 
     # ──────────────────────────────────────────
     # INDEXES
@@ -202,12 +202,12 @@ def create_tables():
     print("\n  Creating indexes...")
     for idx_name, table, columns in indexes:
         cursor.execute(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table} ({columns});")
-        print(f"  ✅ {idx_name}")
+        print(f"  DONE: {idx_name}")
 
     conn.commit()
     conn.close()
 
-    print(f"\n🎉 Database ready at: {DB_PATH}")
+    print(f"\n[DONE] Database ready at: {DB_PATH}")
     print(f"   File size: {DB_PATH.stat().st_size / 1024:.1f} KB\n")
 
 

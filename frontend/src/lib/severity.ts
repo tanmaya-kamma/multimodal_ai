@@ -1,13 +1,13 @@
-// Map backend tiers/severities to frontend styling tokens
+// Map backend tiers/severities to Solaris Clay frontend tokens
 
-export function getTierColor(tier: string, defaultColor = '#ffffff'): string {
+export function getTierColor(tier: string, defaultColor = '#71717a'): string {
   switch (tier.toUpperCase()) {
     case 'CRITICAL':
-      return '#f44336';
+      return '#F87171';
     case 'WARNING':
-      return '#ff9800';
+      return '#FB923C';
     case 'WATCH':
-      return '#ffeb3b';
+      return '#FBBF24';
     case 'NONE':
     default:
       return defaultColor;
@@ -15,15 +15,15 @@ export function getTierColor(tier: string, defaultColor = '#ffffff'): string {
 }
 
 export function getSeverityFillOpacity(severity: number): number {
-  if (severity >= 0.7) return 0.8;
-  if (severity >= 0.45) return 0.55;
+  if (severity >= 0.7) return 0.75;
+  if (severity >= 0.45) return 0.5;
   if (severity >= 0.25) return 0.3;
-  return 0.15;
+  return 0.12;
 }
 
 export function getSeverityFillColor(severity: number): string {
-  if (severity >= 0.7) return '#f44336';
-  if (severity >= 0.45) return '#ff9800';
-  if (severity >= 0.25) return '#ffeb3b';
-  return '#ffeb3b'; // Base watch color format
+  if (severity >= 0.7) return '#F87171';   // Critical
+  if (severity >= 0.45) return '#FBBF24';  // Watch
+  if (severity >= 0.25) return '#34D399';  // Optimal
+  return '#34D399';
 }

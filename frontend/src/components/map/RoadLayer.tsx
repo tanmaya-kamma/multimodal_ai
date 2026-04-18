@@ -11,14 +11,17 @@ interface RoadLayerProps {
 }
 
 const ROAD_COLORS: Record<string, string> = {
-  motorway: '#ff9800',
-  motorway_link: '#ff9800',
-  trunk: '#ffc107',
-  trunk_link: '#ffc107',
-  primary: '#a5d6a7',
-  secondary: '#81c784',
-  railway: '#ab47bc'
+  motorway: '#fb923c',
+  motorway_link: '#fb923c',
+  trunk: '#FBBF24',
+  trunk_link: '#FBBF24',
+  primary: '#34D399',
+  secondary: '#6ee7b7',
+  railway: '#c084fc'
 };
+
+/** Zoom threshold: secondary roads and railways only render at zoom >= 13 */
+const DETAIL_MIN_ZOOM = 13;
 
 export const RoadLayer: React.FC<RoadLayerProps> = ({ map, majorData, secondaryData, railwayData }) => {
   const { majorRoads, secondaryRoads, railways } = useMapStore(state => state.layerVisibility);
@@ -29,7 +32,8 @@ export const RoadLayer: React.FC<RoadLayerProps> = ({ map, majorData, secondaryD
     data: any, 
     visible: boolean, 
     isRailway = false,
-    defaultWidth = 2
+    defaultWidth = 2,
+    minZoom?: number
   ) => {
     if (!data || (!data.roads && !data.railways)) return;
     
@@ -60,6 +64,7 @@ export const RoadLayer: React.FC<RoadLayerProps> = ({ map, majorData, secondaryD
         id: layerId,
         type: 'line',
         source: sourceId,
+        ...(minZoom ? { minzoom: minZoom } : {}),
         layout: {
           'line-join': 'round',
           'line-cap': 'round'
@@ -73,7 +78,7 @@ export const RoadLayer: React.FC<RoadLayerProps> = ({ map, majorData, secondaryD
             'primary', ROAD_COLORS.primary,
             'secondary', ROAD_COLORS.secondary,
             'railway', ROAD_COLORS.railway,
-            '#ffffff' // fallback
+            '#71717a' // fallback
           ],
           'line-width': ['match', ['get', 'type'],
             'motorway', 3,
@@ -83,8 +88,8 @@ export const RoadLayer: React.FC<RoadLayerProps> = ({ map, majorData, secondaryD
             'railway', 1.5,
             defaultWidth
           ],
-          'line-opacity': isRailway ? 0.6 : 0.9,
-          'line-dasharray': isRailway ? [3, 3] : undefined
+          'line-opacity': isRailway ? 0.5 : 0.85,
+          'line-dasharray': isRailway ? [3, 3] : ([1, 0])
         }
       });
     }
@@ -95,9 +100,11 @@ export const RoadLayer: React.FC<RoadLayerProps> = ({ map, majorData, secondaryD
   };
 
   useEffect(() => {
+    // Major roads: always visible (no minzoom constraint)
     syncLayer('major-roads', majorData, majorRoads, false, 2);
-    syncLayer('secondary-roads', secondaryData, secondaryRoads, false, 1.2);
-    syncLayer('railways', railwayData, railways, true);
+    // Secondary roads + railways: minzoom 13 to reduce overview clutter
+    syncLayer('secondary-roads', secondaryData, secondaryRoads, false, 1.2, DETAIL_MIN_ZOOM);
+    syncLayer('railways', railwayData, railways, true, 1.5, DETAIL_MIN_ZOOM);
   }, [map, majorData, secondaryData, railwayData, majorRoads, secondaryRoads, railways]);
 
   return null;

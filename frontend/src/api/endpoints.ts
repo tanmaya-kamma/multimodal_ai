@@ -1,44 +1,46 @@
-import {
+import { apiClient } from './apiClient';
+import type {
   BaseLayerMetadata,
   BoundaryData,
   RoadData,
   RailwayData,
   POIData,
-  HeatmapData,
   ActiveAlertsData,
-  CellDetailData
+  CellDetailData,
+  HeatmapData,
+  RouteAnalysisRequest,
+  RouteAnalysisResponse,
+  SimulationRequest,
+  SimulationResponse,
 } from '../lib/types';
 
-// We point this to your local backend where the Fusion Engine runs
-const API_BASE = 'http://localhost:8000';
-
-async function fetcher<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const url = `${API_BASE}${endpoint}`;
-  const response = await fetch(url, options);
-  
-  if (!response.ok) {
-    throw new Error(`API error: ${response.status} fetching ${url}`);
-  }
-  
-  return response.json();
-}
+// ═══════════════════════════════════════════════
+// TYPED API — Every function maps 1:1 to a FastAPI endpoint
+// Ghost endpoints have been removed.
+// ═══════════════════════════════════════════════
 
 export const api = {
-  // --- EXISTING ARLINGTON DATA (Keep these!) ---
-  getBaseLayer: () => fetcher<BaseLayerMetadata>('/arlington/base-layer'),
-  getBbox: () => fetcher<{ bbox: any; center: any }>('/arlington/bbox'),
-  getBoundary: () => fetcher<BoundaryData>('/arlington/boundary'),
-  getMajorRoads: () => fetcher<RoadData>('/arlington/roads/major'),
-  getSecondaryRoads: () => fetcher<RoadData>('/arlington/roads/secondary'),
-  getRailways: () => fetcher<RailwayData>('/arlington/railways'),
-  getGasStations: () => fetcher<POIData>('/arlington/pois/gas-stations'),
-  getGroceryStores: () => fetcher<POIData>('/arlington/pois/grocery-stores'),
-  getHeatmap: () => fetcher<HeatmapData>('/arlington/heatmap'),
-  getActiveAlerts: () => fetcher<ActiveAlertsData>('/arlington/alerts/active'),
-  getCellDetail: (h3_cell: string) => fetcher<CellDetailData>(`/arlington/alerts/cell/${h3_cell}`),
+  // ── Base Layer (Static GeoJSON, cached ∞) ──
+  getBaseLayer:      () => apiClient.get<BaseLayerMetadata>('/arlington/base-layer').then(r => r.data),
+  getBbox:           () => apiClient.get<{ bbox: any; center: any }>('/arlington/bbox').then(r => r.data),
+  getBoundary:       () => apiClient.get<BoundaryData>('/arlington/boundary').then(r => r.data),
+  getMajorRoads:     () => apiClient.get<RoadData>('/arlington/roads/major').then(r => r.data),
+  getSecondaryRoads: () => apiClient.get<RoadData>('/arlington/roads/secondary').then(r => r.data),
+  getRailways:       () => apiClient.get<RailwayData>('/arlington/railways').then(r => r.data),
+  getGasStations:    () => apiClient.get<POIData>('/arlington/pois/gas-stations').then(r => r.data),
+  getGroceryStores:  () => apiClient.get<POIData>('/arlington/pois/grocery-stores').then(r => r.data),
 
-  // --- YOUR NEW AI PROJECT DATA (Objective 2) ---
-  // This maps the 'Arlington Fusion' to your teammate's actual backend logic
-  runFusion: () => fetcher<{ status: string; alerts_generated: number }>('/fusion/process', { method: 'POST' }),
-  getPOI: () => fetcher<POIData>('/api/poi'), 
+  // ── Fusion Intelligence (Polled every 30s) ──
+  getHeatmap:        () => apiClient.get<HeatmapData>('/arlington/heatmap').then(r => r.data),
+  getActiveAlerts:   () => apiClient.get<ActiveAlertsData>('/arlington/alerts/active').then(r => r.data),
+  getCellDetail:     (h3Cell: string) => apiClient.get<CellDetailData>(`/arlington/alerts/cell/${h3Cell}`).then(r => r.data),
+  
+  // ── Fusion Trigger (Manual or scheduled) ──
+  runFusion:         () => apiClient.post<{ status: string; alerts_generated: number }>('/arlington/fusion/run').then(r => r.data),
+
+  // ── Route Analysis (On-demand) ──
+  analyzeRoutes:     (req: RouteAnalysisRequest) => apiClient.post<RouteAnalysisResponse>('/arlington/routes/analyze', req).then(r => r.data),
+
+  // ── Simulation Trigger (On-demand, chains Fusion) ──
+  triggerSimulation: (req: SimulationRequest) => apiClient.post<SimulationResponse>('/arlington/simulation/trigger', req).then(r => r.data),
 };

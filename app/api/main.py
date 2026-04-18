@@ -6,9 +6,10 @@ Location: app/api/main.py
 Usage (from project root):
     python app/api/main.py
 """
-
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional
 import json
@@ -28,22 +29,35 @@ app = FastAPI(
     description="Base layer API for Arlington, VA supply chain situational awareness",
     version="0.1.0",
 )
+# Define absolute static file directory
+API_DIR = Path(__file__).resolve().parent
+STATIC_PATH = API_DIR / "static"
+STATIC_PATH.mkdir(parents=True, exist_ok=True)
+
+# Ensure the simulation subfolder exists
+SIMULATION_DIR = STATIC_PATH / "simulation"
+SIMULATION_DIR.mkdir(parents=True, exist_ok=True)
+
+print(f"VLM Image Vault active at: {SIMULATION_DIR}")
+
+# Mount the static folder using the absolute path
+app.mount("/static", StaticFiles(directory=str(STATIC_PATH)), name="static")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-from map_viewer import viewer_router
+from app.api.map_viewer import viewer_router
 app.include_router(viewer_router)
 
 # ──────────────────────────────────────────────
 # Constants
 # ──────────────────────────────────────────────
-STATIC_DIR = Path(__file__).resolve().parent.parent / "data" / "static"
+DATA_STATIC_DIR = Path(__file__).resolve().parent.parent / "data" / "static"
 
 ARLINGTON_BBOX = {
     "south": 38.827,
@@ -63,20 +77,20 @@ _cache = {}
 
 
 def load_json(filename: str) -> dict | None:
-    filepath = STATIC_DIR / filename
+    filepath = DATA_STATIC_DIR / filename
     if not filepath.exists():
-        print(f"  ⚠️  {filepath} not found — run fetch_osm_data.py first")
+        print(f"    {filepath} not found — run fetch_osm_data.py first")
         return None
     with open(filepath, "r", encoding="utf-8") as f:
         data = json.load(f)
     size_kb = filepath.stat().st_size / 1024
-    print(f"  ✅ Loaded {filename} ({size_kb:.1f} KB)")
+    print(f"   Loaded {filename} ({size_kb:.1f} KB)")
     return data
 
 
 @app.on_event("startup")
 async def load_cached_data():
-    print("\n🗺️  Loading Arlington, VA OSM data from local files...\n")
+    print("\n   Loading Arlington, VA OSM data from local files...\n")
 
     files = {
         "boundary": "arlington_boundary.json",
@@ -92,10 +106,10 @@ async def load_cached_data():
         if data:
             _cache[key] = data
 
-    print(f"\n🗺️  Loaded {len(_cache)}/{TOTAL_LAYERS} layers: {list(_cache.keys())}")
+    print(f"\n   Loaded {len(_cache)}/{TOTAL_LAYERS} layers: {list(_cache.keys())}")
 
     if len(_cache) < TOTAL_LAYERS:
-        print("⚠️  Some layers missing. Run: python app/sources/osm/fetch_osm_data.py")
+        print("   Some layers missing. Run: python app/sources/osm/fetch_osm_data.py")
 
     print()
 
@@ -199,6 +213,7 @@ async def get_active_alerts():
     alerts = []
     for a in raw_alerts:
         alerts.append({
+            "h3_cell": a["h3_cell"],
             "location": a["location"],
             "explanation": a["explanation"],
             "source_links": a["source_links"],
@@ -209,6 +224,11 @@ async def get_active_alerts():
             "affected_pois": a["affected_pois"],
             "affected_roads": a["affected_roads"],
             "timestamp": a["timestamp"],
+            "corroboration_factor": a.get("corroboration_factor", 1.0),
+            "source_count": a.get("source_count", 0),
+            "signal_count": a.get("signal_count", 0),
+            "primary_event": a.get("primary_event", ""),
+            "all_events": a.get("all_events", []),
         })
 
     return {"total_alerts": len(alerts), "alerts": alerts}
@@ -221,7 +241,7 @@ async def get_heatmap():
     and hexagon boundary coordinates for map overlay.
     """
     import sqlite3
-    db_path = STATIC_DIR.parent / "supply_chain.db"
+    db_path = DATA_STATIC_DIR.parent / "supply_chain.db"
     conn = sqlite3.connect(db_path)
 
     # Get highest severity per cell (deduplicated)
@@ -240,6 +260,7 @@ async def get_heatmap():
             "h3_cell": h3_cell,
             "tier": tier,
             "severity": severity,
+            "combined_severity": severity,
             "boundary": [{"lat": lat, "lon": lon} for lat, lon in boundary],
         })
 
@@ -308,7 +329,7 @@ async def geocode_location(name: str) -> dict | None:
                 }
 
         except Exception as e:
-            print(f"  ❌ Geocoding failed for '{name}': {e}")
+            print(f"   Geocoding failed for '{name}': {e}")
 
     return None
 
@@ -376,7 +397,7 @@ async def get_cell_detail(h3_cell: str):
     All raw signals, POIs at risk, roads affected.
     """
     import sqlite3
-    db_path = STATIC_DIR.parent / "supply_chain.db"
+    db_path = DATA_STATIC_DIR.parent / "supply_chain.db"
     conn = sqlite3.connect(db_path)
 
     weather = [
@@ -387,13 +408,26 @@ async def get_cell_detail(h3_cell: str):
         ).fetchall()
     ]
 
-    traffic = [
-        {"camera_id": r[0], "congestion": r[1], "anomaly": r[2], "image": r[3], "severity": r[4], "timestamp": r[5]}
-        for r in conn.execute(
-            "SELECT camera_id, congestion_level, anomaly_type, image_path, severity, timestamp_utc FROM processed_traffic WHERE h3_cell = ?",
-            (h3_cell,)
-        ).fetchall()
-    ]
+    traffic = []
+    for r in conn.execute(
+        "SELECT camera_id, congestion_level, anomaly_type, image_path, severity, timestamp_utc FROM processed_traffic WHERE h3_cell = ?",
+        (h3_cell,)
+    ).fetchall():
+        # Check if physical asset exists in SIMULATION_DIR
+        has_visual = False
+        if r[3]:
+             img_filename = Path(r[3]).name
+             has_visual = (SIMULATION_DIR / img_filename).exists()
+             
+        traffic.append({
+            "camera_id": r[0],
+            "congestion": r[1],
+            "anomaly": r[2],
+            "image": r[3],
+            "has_visual_evidence": has_visual,
+            "severity": r[4],
+            "timestamp": r[5]
+        })
 
     news = [
         {"source": r[0], "title": r[1], "location": r[2], "event_type": r[3], "severity": r[4], "timestamp": r[5]}
@@ -451,6 +485,70 @@ async def get_base_layer():
             "gas_stations": "/arlington/pois/gas-stations",
             "grocery_stores": "/arlington/pois/grocery-stores",
         },
+    }
+
+
+# ──────────────────────────────────────────────
+# Simulation Trigger Endpoint
+# ──────────────────────────────────────────────
+
+class SimulationTriggerRequest(BaseModel):
+    scenario: str = "flash_flood"
+    epicenter: Optional[dict] = None
+    intensity: Optional[float] = 0.85
+
+@app.post("/arlington/simulation/trigger")
+async def trigger_simulation(request: SimulationTriggerRequest):
+    """
+    Inject simulation data, then run fusion to generate alerts.
+    Currently only supports the flash_flood scenario.
+    """
+    import sys
+    from pathlib import Path
+    app_dir = Path(__file__).resolve().parent.parent
+    if str(app_dir / "simulation") not in sys.path:
+        sys.path.insert(0, str(app_dir / "simulation"))
+    
+    try:
+        from simulate_disaster import inject_weather, inject_traffic, inject_news, cleanup, get_db
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Simulation scripts missing: {e}")
+
+    try:
+        from fusion_engine import run_fusion
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Fusion engine missing: {e}")
+
+    from datetime import datetime, timezone
+
+    # 1. Clean previous simulation data
+    cleanup()
+
+    # 2. Inject fresh scenario
+    if request.scenario == "flash_flood":
+        conn = get_db()
+        if not conn:
+            raise HTTPException(status_code=500, detail="Database not available")
+
+        inject_weather(conn)
+        inject_traffic(conn)
+        inject_news(conn)
+        conn.commit()
+        conn.close()
+    else:
+        raise HTTPException(status_code=400, detail=f"Scenario '{request.scenario}' not implemented yet.")
+
+    # 3. Chain fusion
+    alerts = run_fusion()
+    affected_cells = list(set(a["h3_cell"] for a in alerts))
+
+    return {
+        "status": "success",
+        "scenario": request.scenario,
+        "records_injected": len(alerts) * 3,  # approximate
+        "alerts_generated": len(alerts),
+        "affected_cells": affected_cells,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 

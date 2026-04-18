@@ -29,7 +29,7 @@ NOW = datetime.now(timezone.utc)
 
 def get_db():
     if not DB_PATH.exists():
-        print(f"❌ Database not found at {DB_PATH}")
+        print(f"[ERROR] Database not found at {DB_PATH}")
         return None
     return sqlite3.connect(DB_PATH)
 
@@ -55,7 +55,7 @@ FLOOD_ZONE = [
 
 
 def inject_weather(conn):
-    print("\n  🌧️  Injecting weather alerts + forecast...")
+    print("\n  [WEATHER] Injecting weather alerts + forecast...")
 
     # Raw weather: the full NWS alert response
     alert_response = {
@@ -146,11 +146,11 @@ def inject_weather(conn):
             )
 
     count = len(alerts) + len(FLOOD_ZONE) * 5
-    print(f"    ✅ {count} weather records")
+    print(f"    DONE: {count} weather records")
 
 
 def inject_traffic(conn):
-    print("\n  🚦 Injecting traffic camera detections...")
+    print("\n  [TRAFFIC] Injecting traffic camera detections...")
 
     cameras = [
         {
@@ -217,11 +217,11 @@ def inject_traffic(conn):
              cam["severity"], cam["confidence"], ts(0)),
         )
 
-    print(f"    ✅ {len(cameras)} traffic camera records")
+    print(f"    DONE: {len(cameras)} traffic camera records")
 
 
 def inject_news(conn):
-    print("\n  📰 Injecting news articles...")
+    print("\n  [NEWS] Injecting news articles...")
 
     articles = [
         {
@@ -320,12 +320,12 @@ def inject_news(conn):
              a["severity"], a["confidence"], ts(0)),
         )
 
-    print(f"    ✅ {len(articles)} news articles")
+    print(f"    DONE: {len(articles)} news articles")
 
 
 def print_summary(conn):
     print(f"\n{'=' * 60}")
-    print("  📊 DATABASE AFTER SIMULATION")
+    print("  DB SUMMARY AFTER SIMULATION")
     print(f"{'=' * 60}")
 
     for table in ["raw_weather", "raw_traffic", "raw_news",
@@ -334,7 +334,7 @@ def print_summary(conn):
         print(f"  {table:25s} {count:4d} records")
 
     # Show converging cells
-    print(f"\n  🔥 CELLS WITH MULTIPLE SOURCES:")
+    print(f"\n  CONVERGING CELLS WITH MULTIPLE SOURCES:")
     rows = conn.execute("""
         SELECT h3_cell, COUNT(DISTINCT source) as n, GROUP_CONCAT(DISTINCT source) as sources
         FROM (
@@ -358,7 +358,7 @@ def print_summary(conn):
             (h3_cell,)
         ).fetchone()[0]
 
-        tier = "🔴 CRITICAL" if count >= 3 else "🟠 WARNING"
+        tier = "CRITICAL" if count >= 3 else "WARNING"
         extras = []
         if poi_count:
             extras.append(f"{poi_count} POIs")
@@ -366,13 +366,13 @@ def print_summary(conn):
             extras.append(f"{road_count} roads")
         extra_str = f" | {', '.join(extras)}" if extras else ""
 
-        print(f"    {tier} {h3_cell[:12]}... → {count} sources ({sources}){extra_str}")
+        print(f"    {tier} {h3_cell[:12]}... -> {count} sources ({sources}){extra_str}")
 
     print(f"{'=' * 60}")
 
 
 def cleanup():
-    print("\n🧹 Cleaning up simulation data...")
+    print("\n[CLEANUP] Cleaning up simulation data...")
     conn = get_db()
     if not conn:
         return
@@ -391,7 +391,7 @@ def cleanup():
 
     conn.commit()
     conn.close()
-    print("  ✅ Simulation data removed.\n")
+    print("  DONE: Simulation data removed.\n")
 
 
 def main():
@@ -404,10 +404,10 @@ def main():
         return
 
     print(f"\n{'=' * 60}")
-    print("  🌊 SIMULATING: Flash Flood in South Arlington")
+    print("  SIMULATING: Flash Flood in South Arlington")
     print(f"{'=' * 60}")
     print(f"  Time:     {NOW.strftime('%Y-%m-%d %H:%M UTC')}")
-    print(f"  Area:     Pentagon City → Crystal City → Shirlington")
+    print(f"  Area:     Pentagon City -> Crystal City -> Shirlington")
     print(f"  Event:    Severe thunderstorm + flash flooding")
     print(f"{'=' * 60}")
 
@@ -420,7 +420,7 @@ def main():
     print_summary(conn)
     conn.close()
 
-    print("\n🎬 Simulation ready! Now run:")
+    print("\n[READY] Simulation ready! Now run:")
     print("   python app/fusion/fusion_engine.py")
     print("\n   Then test routes through south Arlington:")
     print('   POST /arlington/routes/analyze')

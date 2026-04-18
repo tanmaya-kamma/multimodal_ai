@@ -7,12 +7,12 @@ interface StatusBadgeProps {
 }
 
 export const StatusBadge: React.FC<StatusBadgeProps> = ({ tier, size = 'sm' }) => {
-  const color = getTierColor(tier, '#4fc3f7'); // Default cyan for 'NONE' or info
+  const color = getTierColor(tier, '#67e8f9');
   
   const sizeStyles = {
-    sm: { padding: '2px 6px', fontSize: '10px' },
-    md: { padding: '4px 8px', fontSize: '12px' },
-    lg: { padding: '6px 12px', fontSize: '14px' },
+    sm: { padding: '2px 7px', fontSize: '9px' },
+    md: { padding: '3px 8px', fontSize: '10px' },
+    lg: { padding: '5px 12px', fontSize: '12px' },
   };
 
   return (
@@ -20,12 +20,12 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ tier, size = 'sm' }) =
       ...sizeStyles[size],
       display: 'inline-flex',
       alignItems: 'center',
-      border: `1px solid ${color}40`, // 25% opacity border
-      backgroundColor: `${color}15`, // ~8% opacity bg
+      border: `1px solid ${color}30`,
+      backgroundColor: `${color}12`,
       color: color,
-      borderRadius: '4px',
+      borderRadius: '6px',
       fontWeight: 600,
-      letterSpacing: '0.05em',
+      letterSpacing: '0.06em',
       textTransform: 'uppercase',
       lineHeight: 1,
     }}>

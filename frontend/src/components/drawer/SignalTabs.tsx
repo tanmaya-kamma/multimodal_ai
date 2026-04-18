@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { WeatherSignal, TrafficSignal, NewsSignal } from '../../lib/types';
 import { SeverityBar } from '../ui/SeverityBar';
 
@@ -8,10 +8,15 @@ interface SignalTabsProps {
     traffic: TrafficSignal[];
     news: NewsSignal[];
   };
+  initialTab?: 'weather' | 'traffic' | 'news';
 }
 
-export const SignalTabs: React.FC<SignalTabsProps> = ({ signals }) => {
-  const [activeTab, setActiveTab] = useState<'weather' | 'traffic' | 'news'>('weather');
+export const SignalTabs: React.FC<SignalTabsProps> = ({ signals, initialTab = 'weather' }) => {
+  const [activeTab, setActiveTab] = useState<'weather' | 'traffic' | 'news'>(initialTab);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   const tabs = [
     { id: 'weather', label: `Weather (${signals.weather?.length || 0})` },

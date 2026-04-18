@@ -1,7 +1,7 @@
 """
 traffic_processor.py — Analyzes traffic camera images using two techniques:
   1. OpenCV change detection (fast, free — detects THAT something changed)
-  2. Claude Vision API (intelligent — understands WHAT changed)
+  2. Gemini Vision API (intelligent — understands WHAT changed), claude vision api as backup
 
 Location: app/sources/traffic/traffic_processor.py
 
@@ -16,7 +16,7 @@ Usage (from project root):
     python app/sources/traffic/traffic_processor.py
 
 Requires:
-    ANTHROPIC_API_KEY environment variable (for Claude Vision)
+    GEMINI_API_KEY environment variable 
 """
 
 import sqlite3
@@ -28,13 +28,19 @@ import base64
 import os
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Any, Optional
 
 try:
     import anthropic
+    HAS_ANTHROPIC = True
 except ImportError:
-    print("❌ anthropic not installed. Run: pip install anthropic")
-    exit(1)
+    HAS_ANTHROPIC = False
+
+try:
+    from google import genai
+    from google.genai import types
+    HAS_GEMINI = True
+except ImportError:
+    HAS_GEMINI = False
 
 # ──────────────────────────────────────────────
 # Constants
@@ -152,21 +158,93 @@ def compute_baseline_score(latest_path: str, camera_id: str) -> float:
 # ──────────────────────────────────────────────
 # TECHNIQUE 2: Claude Vision API Analysis
 # ──────────────────────────────────────────────
-def analyze_with_claude_vision(image_path: str, camera_location: str) -> Optional[dict[str, Any]]:
+def get_vision_provider() -> str:
+    """Determine which Vision API to use."""
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    claude_key = os.environ.get("ANTHROPIC_API_KEY")
+
+    if gemini_key and HAS_GEMINI:
+        return "gemini"
+    elif claude_key and HAS_ANTHROPIC:
+        return "claude"
+    return "none"
+
+
+def analyze_with_vision(image_path: str, camera_location: str) -> dict | None:
     """
-    Send camera image to Claude Vision for intelligent analysis.
-    Returns structured assessment of road conditions.
+    Send camera image to a Vision Language Model for analysis.
+    Tries Gemini first (free tier), falls back to Claude.
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    provider = get_vision_provider()
+
+    if provider == "gemini":
+        return analyze_with_gemini(image_path, camera_location)
+    elif provider == "claude":
+        return analyze_with_claude(image_path, camera_location)
+    return None
+
+
+VISION_PROMPT = """Analyze this traffic camera image from {location}, Arlington, VA.
+You are assessing road conditions for supply chain disruption detection.
+
+Respond ONLY with a JSON object, no other text:
+{{
+    "road_condition": "clear|wet|flooded|snow_covered|icy|debris",
+    "congestion_level": "clear|light|moderate|heavy|blocked",
+    "anomaly_detected": true/false,
+    "anomaly_type": "none|flooding|accident|debris|stalled_vehicle|construction|poor_visibility",
+    "visibility": "good|moderate|poor|very_poor",
+    "truck_presence": "none|few|normal|many",
+    "severity": 0.0 to 1.0 (supply chain disruption severity),
+    "confidence": 0.0 to 1.0 (how confident you are in this assessment),
+    "description": "One sentence describing what you see"
+}}"""
+
+
+def analyze_with_gemini(image_path: str, camera_location: str) -> dict | None:
+    """Analyze camera image using Google Gemini Vision (free tier)."""
+    api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        print("    ⚠️  ANTHROPIC_API_KEY not set, using rule-based fallback")
         return None
 
-    # Read and encode image
+    try:
+        with open(image_path, "rb") as f:
+            image_bytes = f.read()
+
+        media_type = "image/jpeg"
+        if image_path.endswith(".png"):
+            media_type = "image/png"
+
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model="gemini-2.5-flash-preview-05-20",
+            contents=[
+                types.Part.from_bytes(data=image_bytes, mime_type=media_type),
+                VISION_PROMPT.format(location=camera_location),
+            ],
+        )
+
+        response_text = response.text.strip()
+        response_text = response_text.replace("json", "").replace("", "").strip()
+        return json.loads(response_text)
+
+    except json.JSONDecodeError as e:
+        print(f"    ⚠️  Gemini returned invalid JSON: {e}")
+        return None
+    except Exception as e:
+        print(f"    ⚠️  Gemini Vision error: {e}")
+        return None
+
+
+def analyze_with_claude(image_path: str, camera_location: str) -> dict | None:
+    """Analyze camera image using Claude Vision API."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return None
+
     with open(image_path, "rb") as f:
         image_data = base64.b64encode(f.read()).decode("utf-8")
 
-    # Determine media type
     media_type = "image/jpeg"
     if image_path.endswith(".png"):
         media_type = "image/png"
@@ -191,41 +269,16 @@ def analyze_with_claude_vision(image_path: str, camera_location: str) -> Optiona
                         },
                         {
                             "type": "text",
-                            "text": f"""Analyze this traffic camera image from {camera_location}, Arlington, VA.
-You are assessing road conditions for supply chain disruption detection.
-
-Respond ONLY with a JSON object, no other text:
-{{
-    "road_condition": "clear|wet|flooded|snow_covered|icy|debris",
-    "congestion_level": "clear|light|moderate|heavy|blocked",
-    "anomaly_detected": true/false,
-    "anomaly_type": "none|flooding|accident|debris|stalled_vehicle|construction|poor_visibility",
-    "visibility": "good|moderate|poor|very_poor",
-    "truck_presence": "none|few|normal|many",
-    "severity": 0.0 to 1.0 (supply chain disruption severity),
-    "confidence": 0.0 to 1.0 (how confident you are in this assessment),
-    "description": "One sentence describing what you see"
-}}"""
+                            "text": VISION_PROMPT.format(location=camera_location),
                         },
                     ],
                 }
             ],
         )
 
-        # Parse response
-        response_text = ""
-        content_blocks = response.content if isinstance(response.content, list) else [response.content]
-        for block in content_blocks:
-            if isinstance(block, dict):
-                response_text += block.get("text", "") or block.get("content", "")
-            else:
-                response_text += getattr(block, "text", None) or getattr(block, "content", None) or str(block)
-
-        response_text = response_text.strip()
-        # Clean markdown code fences if present
-        response_text = response_text.replace("```json", "").replace("```", "").strip()
-        result = json.loads(response_text)
-        return result
+        response_text = response.content[0].text.strip()
+        response_text = response_text.replace("json", "").replace("", "").strip()
+        return json.loads(response_text)
 
     except json.JSONDecodeError as e:
         print(f"    ⚠️  Claude returned invalid JSON: {e}")
@@ -289,12 +342,14 @@ def process_traffic():
     # Clear previous processed records (we re-analyze each cycle)
     conn.execute("DELETE FROM processed_traffic WHERE camera_id NOT LIKE 'SIM%'")
 
-    has_api_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    if has_api_key:
-        print("  🔑 Claude API key found — will use Vision analysis for anomalies")
+    has_vision = get_vision_provider() != "none"
+    provider = get_vision_provider()
+    if has_vision:
+        print(f"  🔑 Vision API: {provider.upper()} — will analyze anomalies")
     else:
-        print("  ⚠️  No ANTHROPIC_API_KEY — using change detection only")
-        print("     Set it with: set ANTHROPIC_API_KEY=your_key_here\n")
+        print("  ⚠️  No Vision API key set. Set one of:")
+        print("     set GEMINI_API_KEY=your_key    (free tier: 15 requests/min)")
+        print("     set ANTHROPIC_API_KEY=your_key  (paid)\n")
 
     processed = 0
     anomalies = 0
@@ -320,10 +375,10 @@ def process_traffic():
         # ── Step 2: Decide whether to use Claude Vision ──
         assessment = None
 
-        if effective_change >= CHANGE_THRESHOLD and has_api_key:
-            # Significant change detected — use Claude Vision
-            print(f"  🔍 {camera_id} — change={effective_change:.3f} → Sending to Claude Vision...")
-            assessment = analyze_with_claude_vision(str(latest_path), cam["location"])
+        if effective_change >= CHANGE_THRESHOLD and has_vision:
+            # Significant change detected — use Vision API
+            print(f"  🔍 {camera_id} — change={effective_change:.3f} → Sending to {provider.upper()} Vision...")
+            assessment = analyze_with_vision(str(latest_path), cam["location"])
             api_calls += 1
 
             if assessment and assessment.get("anomaly_detected"):

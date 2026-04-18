@@ -10,6 +10,8 @@ app/data/supply_chain.db
 
 .env
 .env.example
+.env.local
+.env.*.local
 .antigravity-rules
 .antigravity-rules.md
 

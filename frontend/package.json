@@ -11,7 +11,9 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.96.1",
+    "axios": "^1.15.0",
     "h3-js": "^4.4.0",
+    "lucide-react": "^1.8.0",
     "maplibre-gl": "^5.21.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
