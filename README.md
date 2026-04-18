@@ -1,6 +1,6 @@
-**SOLARIS**
 
-# 🌐 Multimodal AI for Situational Awareness of Supply Chain Disruptions
+
+# 🌐SOLARIS:  Multimodal AI for Situational Awareness of Supply Chain Disruptions
 
 **Real-time detection, scoring, and visualization of supply chain disruptions during disaster response operations — powered by attention-weighted multi-source data fusion.**
 
