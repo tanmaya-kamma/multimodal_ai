@@ -57,12 +57,16 @@ def simplify_coords(coordinates: list, min_distance_m: int = SIMPLIFY_DISTANCE_M
 # Step 1: Get ALL driving routes from OSRM
 # Returns list of route options (primary + alternatives)
 # ──────────────────────────────────────────────
-def get_all_routes(source: dict, destination: dict) -> list:
+def get_all_routes(source: dict, destination: dict, via: dict = None) -> list:
     """
     Get primary + alternative driving routes between two points.
     Returns list of routes sorted by duration (fastest first).
     """
-    coords = f"{source['lon']},{source['lat']};{destination['lon']},{destination['lat']}"
+    if via:
+        coords = f"{source['lon']},{source['lat']};{via['lon']},{via['lat']};{destination['lon']},{destination['lat']}"
+    else:
+        coords = f"{source['lon']},{source['lat']};{destination['lon']},{destination['lat']}"
+        
     url = f"{OSRM_BASE}/route/v1/driving/{coords}"
 
     params = {
@@ -395,27 +399,35 @@ def analyze_routes(source: dict, destinations: list) -> dict:
                     ),
                 }
             else:
-                print("    [DEMO] Simulating alternate route for UI preview...")
-                fake_alt = primary.copy()
-                fake_alt["distance_km"] = round(primary["distance_km"] * 1.15, 1)
-                fake_alt["duration_min"] = round(primary["duration_min"] * 1.25, 1)
+                print("    [DEMO] Simulating alternate route via intermediate geometric offset...")
+                # OSRM didn't return alternatives natively. Force a detour that follows real roads.
+                mid_idx = len(all_routes[0]["full_coordinates"]) // 2
+                midway = all_routes[0]["full_coordinates"][mid_idx]
                 
-                # Shift geometry slightly east to separate it visually on the map (~400m)
-                fake_coords = []
-                for c in all_routes[0]["full_coordinates"]:
-                    fake_coords.append({"lat": c["lat"], "lon": c["lon"] + 0.005})
+                # Shift ~1.5km East
+                forced_via = {"lat": midway["lat"], "lon": midway["lon"] + 0.015}
+                forced_routes = get_all_routes(current_point, dest, via=forced_via)
                 
-                fake_alt["route_coordinates"] = simplify_coords(fake_coords)
-                # Ensure we also drop the compromised overlay for the fake route to make it look "safer"
-                fake_alt["compromised_cells"] = 0
-                fake_alt["total_severity"] = 0.0
-                fake_alt["status"] = "clear"
-                fake_alt["compromised_segments"] = []
-
-                leg_result["alternate_route"] = {
-                    **fake_alt,
-                    "reason": "Simulated Alternative (OSRM returned 1 path). Diverts to secondary arterials to fully avoid compromised zones."
-                }
+                # If shifting East fails (e.g. goes into the river without local roads), try West
+                if not forced_routes:
+                    forced_via = {"lat": midway["lat"], "lon": midway["lon"] - 0.015}
+                    forced_routes = get_all_routes(current_point, dest, via=forced_via)
+                
+                if forced_routes:
+                    forced_scored = score_route(forced_routes[0], disrupted_cells)
+                    extra_dist = forced_scored["distance_km"] - primary["distance_km"]
+                    extra_time = forced_scored["duration_min"] - primary["duration_min"]
+                    
+                    leg_result["alternate_route"] = {
+                        **forced_scored,
+                        "reason": (
+                            f"Forced via-point alternative to avoid primary corridor. "
+                            f"Additional distance: {extra_dist:+.1f} km, "
+                            f"additional time: {extra_time:+.1f} min."
+                        )
+                    }
+                else:
+                    leg_result["alternate_note"] = "No alternative routes available (even via offset geometries)."
         total_distance_km += primary["distance_km"]
         total_duration_min += primary["duration_min"]
         analyzed_legs.append(leg_result)

@@ -170,19 +170,23 @@ export const RouteAnalysisLayer: React.FC<RouteAnalysisLayerProps> = ({ map, rou
       const truckFeatures: GeoJSON.Feature[] = [];
       const trailFeatures: GeoJSON.Feature[] = [];
 
+      // Combine all active routes into a single continuous path
+      const overallCoords: {lat: number, lon: number}[] = [];
       activeRoutes.forEach(route => {
-        if (route.status === 'route_not_found' || !route.route_coordinates || route.route_coordinates.length < 2) return;
-        
-        const coords = route.route_coordinates;
-        const totalPoints = coords.length;
+        if (route.status === 'route_not_found' || !route.route_coordinates) return;
+        overallCoords.push(...route.route_coordinates);
+      });
+
+      if (overallCoords.length >= 2) {
+        const totalPoints = overallCoords.length;
         const exactIndex = loopT * (totalPoints - 1);
         const index1 = Math.floor(exactIndex);
         const index2 = Math.min(index1 + 1, totalPoints - 1);
         const fract = exactIndex - index1;
 
         // Linear Interpolation
-        const p1 = coords[index1];
-        const p2 = coords[index2];
+        const p1 = overallCoords[index1];
+        const p2 = overallCoords[index2];
         const lng = p1.lon + (p2.lon - p1.lon) * fract;
         const lat = p1.lat + (p2.lat - p1.lat) * fract;
 
@@ -192,7 +196,7 @@ export const RouteAnalysisLayer: React.FC<RouteAnalysisLayerProps> = ({ map, rou
           properties: {}
         });
 
-        const trailCoords = coords.slice(0, index1 + 1).map(c => [c.lon, c.lat]);
+        const trailCoords = overallCoords.slice(0, index1 + 1).map(c => [c.lon, c.lat]);
         trailCoords.push([lng, lat]);
         
         trailFeatures.push({
@@ -200,7 +204,7 @@ export const RouteAnalysisLayer: React.FC<RouteAnalysisLayerProps> = ({ map, rou
           geometry: { type: 'LineString', coordinates: trailCoords },
           properties: {}
         });
-      });
+      }
 
       if (map.getSource('route-truck-source')) {
         (map.getSource('route-truck-source') as maplibregl.GeoJSONSource).setData({
