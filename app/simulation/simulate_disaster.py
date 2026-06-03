@@ -4,8 +4,12 @@ into the database for hackathon demo.
 
 Location: app/simulation/simulate_disaster.py
 
-Scenario: Severe thunderstorm + flash flooding hits south Arlington.
-Affected area: Pentagon City → Crystal City → Shirlington corridor.
+Scenario: Severe thunderstorm + flash flooding hits east Arlington.
+Affected area: a compact Pentagon City -> Crystal City -> Route 1
+corridor pocket (3 adjacent H3 cells). Kept intentionally small so the
+rest of the road network (Columbia Pike, Glebe Rd, Arlington Blvd,
+Washington Blvd, Shirlington) stays clear and the route analyzer can
+always offer a viable alternate.
 
 Usage:
     python app/simulation/simulate_disaster.py              # inject
@@ -14,6 +18,7 @@ Usage:
 After injecting, run the fusion engine:
     python app/fusion/fusion_engine.py
 """
+
 
 import sqlite3
 import json
@@ -43,14 +48,17 @@ def cell(lat, lon):
 
 
 # ──────────────────────────────────────────────
-# Affected locations in south Arlington
+# Affected locations — a tight 3-cell pocket in east Arlington.
+# These three coordinates resolve to three mutually-adjacent H3
+# res-8 cells (Pentagon City, Crystal City, Route 1 corridor).
+# Every severity-bearing signal below snaps onto one of these three
+# anchors, so the disruption never spreads beyond 3 cells and the
+# surrounding network always offers an alternate route.
 # ──────────────────────────────────────────────
 FLOOD_ZONE = [
-    {"name": "Pentagon City",     "lat": 38.862, "lon": -77.059},
-    {"name": "Crystal City",      "lat": 38.856, "lon": -77.049},
-    {"name": "Route 1 corridor",  "lat": 38.850, "lon": -77.051},
-    {"name": "Columbia Pike",     "lat": 38.858, "lon": -77.085},
-    {"name": "Shirlington",       "lat": 38.843, "lon": -77.074},
+    {"name": "Pentagon City",    "lat": 38.862, "lon": -77.059},  # cell A
+    {"name": "Crystal City",     "lat": 38.856, "lon": -77.049},  # cell B
+    {"name": "Route 1 corridor", "lat": 38.850, "lon": -77.051},  # cell C
 ]
 
 
@@ -73,10 +81,11 @@ def inject_weather(conn):
                         "urgency": "Immediate",
                         "headline": "Flash Flood Warning issued for Arlington County until 6 PM EDT",
                         "description": (
-                            "Heavy rainfall has caused flash flooding in the Route 1 corridor "
-                            "and Pentagon City area. Several roads are impassable. Water levels "
-                            "are rising rapidly in Four Mile Run. Low-lying areas near Crystal City "
-                            "and Shirlington are experiencing significant flooding."
+                            "Heavy rainfall has caused flash flooding in the Pentagon City "
+                            "and Crystal City area. Several roads along the Route 1 corridor "
+                            "are impassable. Water levels are rising rapidly. Low-lying areas "
+                            "around Pentagon City and Crystal City are experiencing significant "
+                            "flooding."
                         ),
                         "instruction": "Turn around, don't drown. Avoid flood-prone areas.",
                         "onset": ts(-10),
@@ -96,8 +105,9 @@ def inject_weather(conn):
                         "headline": "Severe Thunderstorm Warning for Arlington County",
                         "description": (
                             "A severe thunderstorm producing heavy rain and damaging winds "
-                            "up to 60 mph is moving through south Arlington. Rainfall rates "
-                            "exceeding 2 inches per hour."
+                            "up to 60 mph is moving through east Arlington over the Pentagon "
+                            "City and Route 1 corridor. Rainfall rates exceeding 2 inches "
+                            "per hour."
                         ),
                         "instruction": "Move to an interior room on the lowest floor.",
                         "onset": ts(-60),
@@ -116,13 +126,14 @@ def inject_weather(conn):
         (38.862, -77.059, json.dumps(alert_response), ts(0)),
     )
 
-    # Processed weather: alerts at each flood zone point
+    # Processed weather: alerts at each of the 3 pocket cells
+    # (lat/lon, severity, confidence chosen so Pentagon City + Crystal
+    #  City read CRITICAL once traffic/news corroborate, Route 1 WARNING)
     alerts = [
-        ("Flash Flood Warning",        38.862, -77.059, 0.95, 1.0,  ts(-10)),
-        ("Flash Flood Warning",        38.856, -77.049, 0.95, 1.0,  ts(-10)),
-        ("Flash Flood Warning",        38.850, -77.051, 0.90, 0.9,  ts(-10)),
-        ("Severe Thunderstorm Warning", 38.858, -77.085, 0.80, 1.0,  ts(-60)),
-        ("Flash Flood Warning",        38.843, -77.074, 0.85, 0.9,  ts(-5)),
+        ("Flash Flood Warning",        38.862, -77.059, 0.95, 1.0,  ts(-10)),  # A Pentagon City
+        ("Flash Flood Warning",        38.856, -77.049, 0.95, 1.0,  ts(-10)),  # B Crystal City
+        ("Flash Flood Warning",        38.850, -77.051, 0.90, 0.9,  ts(-10)),  # C Route 1 corridor
+        ("Severe Thunderstorm Warning", 38.862, -77.059, 0.80, 1.0,  ts(-60)),  # A Pentagon City
     ]
 
     for alert_type, lat, lon, severity, confidence, timestamp in alerts:
@@ -133,7 +144,7 @@ def inject_weather(conn):
             (cell(lat, lon), timestamp, alert_type, severity, confidence, ts(0)),
         )
 
-    # Processed weather: severe forecast at all points
+    # Processed weather: severe forecast at all 3 pocket points
     for point in FLOOD_ZONE:
         for offset in [-60, -30, 0, 30, 60]:
             conn.execute(
@@ -152,48 +163,34 @@ def inject_weather(conn):
 def inject_traffic(conn):
     print("\n  [TRAFFIC] Injecting traffic camera detections...")
 
+    # All cameras snap onto the 3 pocket cells:
+    #   A Pentagon City (38.862,-77.059 and the in-cell 38.860,-77.060),
+    #   B Crystal City  (38.856,-77.049),
+    #   C Route 1       (38.850,-77.051)
     cameras = [
         {
-            "id": "CAM-RT1-001", "lat": 38.850, "lon": -77.051,
+            "id": "CAM-PENT-001", "lat": 38.862, "lon": -77.059,
             "congestion": "blocked", "anomaly": "flooding", "severity": 0.95, "confidence": 0.92,
             "time": ts(10),
-            "desc": "Standing water ~18 inches deep on Route 1 near Pentagon City",
+            "desc": "Standing water ~18 inches deep on S Hayes St near Pentagon City Mall",
         },
         {
-            "id": "CAM-CPIKE-002", "lat": 38.858, "lon": -77.085,
-            "congestion": "blocked", "anomaly": "flooding", "severity": 0.85, "confidence": 0.88,
+            "id": "CAM-RT1-002", "lat": 38.850, "lon": -77.051,
+            "congestion": "blocked", "anomaly": "flooding", "severity": 0.92, "confidence": 0.90,
             "time": ts(15),
-            "desc": "Columbia Pike at Walter Reed - road flooded, vehicles stranded",
+            "desc": "Route 1 (Richmond Hwy) southbound - roadway flooded, vehicles stranded",
         },
         {
-            "id": "CAM-395-003", "lat": 38.848, "lon": -77.055,
-            "congestion": "slow", "anomaly": "debris", "severity": 0.70, "confidence": 0.85,
-            "time": ts(20),
-            "desc": "I-395 southbound near Shirlington - debris on road, 1 lane blocked",
-        },
-        {
-            "id": "CAM-SHRL-004", "lat": 38.843, "lon": -77.074,
+            "id": "CAM-CC-003", "lat": 38.856, "lon": -77.049,
             "congestion": "blocked", "anomaly": "flooding", "severity": 0.90, "confidence": 0.90,
             "time": ts(25),
-            "desc": "Shirlington Road at Four Mile Run - completely submerged",
+            "desc": "Crystal Drive at 18th St S - intersection submerged",
         },
         {
-            "id": "CAM-CC-005", "lat": 38.856, "lon": -77.049,
-            "congestion": "slow", "anomaly": "flooding", "severity": 0.75, "confidence": 0.80,
-            "time": ts(30),
-            "desc": "Crystal Drive - water rising on road surface",
-        },
-        {
-            "id": "CAM-23RD-006", "lat": 38.860, "lon": -77.060,
-            "congestion": "blocked", "anomaly": "flooding", "severity": 0.88, "confidence": 0.87,
+            "id": "CAM-PENT-004", "lat": 38.860, "lon": -77.060,
+            "congestion": "slow", "anomaly": "flooding", "severity": 0.75, "confidence": 0.85,
             "time": ts(60),
-            "desc": "23rd Street S near Pentagon City Mall - intersection flooded",
-        },
-        {
-            "id": "CAM-GLEBE-007", "lat": 38.855, "lon": -77.080,
-            "congestion": "slow", "anomaly": "accident", "severity": 0.65, "confidence": 0.90,
-            "time": ts(45),
-            "desc": "Glebe Road at Columbia Pike - multi-vehicle accident in heavy rain",
+            "desc": "23rd Street S near Pentagon City - water rising on road surface",
         },
     ]
 
@@ -223,90 +220,63 @@ def inject_traffic(conn):
 def inject_news(conn):
     print("\n  [NEWS] Injecting news articles...")
 
+    # News only references the pocket (Pentagon City / Crystal City /
+    # Route 1). Articles land in cells A and B so those read CRITICAL
+    # (weather+traffic+news), while Route 1 (C) stays WARNING.
     articles = [
         {
             "source": "ARLnow",
-            "title": "Flash Flooding Closes Multiple Roads in South Arlington",
+            "title": "Flash Flooding Closes Roads Around Pentagon City",
             "content": (
-                "Several roads in south Arlington are impassable due to flash flooding. "
-                "Route 1 near Pentagon City and Columbia Pike at Walter Reed Drive are "
-                "completely blocked. Multiple vehicles stranded near Shirlington."
+                "Several roads around Pentagon City are impassable due to flash flooding. "
+                "S Hayes Street and the Route 1 corridor near Pentagon City Mall are "
+                "completely blocked. Multiple vehicles reported stranded."
             ),
-            "url": "https://www.arlnow.com/2026/flash-flooding-south-arlington",
+            "url": "https://www.arlnow.com/2026/flash-flooding-pentagon-city",
             "published": ts(20),
-            "location": "Route 1, Pentagon City",
+            "location": "Pentagon City, Route 1 corridor",
             "event_type": "flooding",
-            "lat": 38.855, "lon": -77.059,
+            "lat": 38.862, "lon": -77.059,
             "severity": 0.85, "confidence": 0.90,
         },
         {
-            "source": "WTOP",
-            "title": "I-395 Partially Closed Due to Debris and Flooding Near Shirlington",
-            "content": (
-                "Virginia State Police have closed one lane of I-395 southbound near "
-                "Shirlington. Flooding on exit ramps. VDOT crews responding."
-            ),
-            "url": "https://wtop.com/virginia/2026/i395-flooding-arlington",
-            "published": ts(30),
-            "location": "I-395, Shirlington",
-            "event_type": "road_closure",
-            "lat": 38.848, "lon": -77.055,
-            "severity": 0.75, "confidence": 0.85,
-        },
-        {
-            "source": "Washington Post",
-            "title": "Severe Storms Disrupt Supply Deliveries Across Northern Virginia",
-            "content": (
-                "Grocery delivery trucks and fuel tankers unable to reach several locations "
-                "in south Arlington. Harris Teeter and Giant Food in Pentagon City report "
-                "cancelled deliveries. Gas stations along Route 1 may face fuel shortages."
-            ),
-            "url": "https://www.washingtonpost.com/dc-md-va/2026/supply-chain-disruption-nova",
-            "published": ts(90),
-            "location": "Pentagon City, Crystal City",
-            "event_type": "supply_disruption",
-            "lat": 38.860, "lon": -77.055,
-            "severity": 0.90, "confidence": 0.85,
-        },
-        {
-            "source": "NBC Washington",
-            "title": "Four Mile Run Overflows Banks, Flooding Shirlington Businesses",
-            "content": (
-                "Four Mile Run has overflowed near Shirlington, sending floodwaters into "
-                "Shirlington Village shopping area. Multiple businesses affected. Arlington "
-                "County has activated emergency response teams."
-            ),
-            "url": "https://www.nbcwashington.com/weather/2026/four-mile-run-flooding",
-            "published": ts(45),
-            "location": "Shirlington",
-            "event_type": "flooding",
-            "lat": 38.843, "lon": -77.074,
-            "severity": 0.88, "confidence": 0.92,
-        },
-        {
             "source": "WJLA ABC7",
-            "title": "Arlington County Issues Emergency Alert: Avoid South Arlington Roads",
+            "title": "Arlington County Issues Emergency Alert: Avoid Pentagon City Roads",
             "content": (
-                "Arlington County Emergency Management urging all residents to avoid roads "
-                "in south Arlington. Pentagon City, Crystal City, and Route 1 corridor "
-                "experiencing severe flooding. Emergency shelters opened at Wakefield High. "
-                "At least 15 water rescues performed."
+                "Arlington County Emergency Management is urging residents to avoid roads "
+                "around Pentagon City and Crystal City. The Route 1 corridor is experiencing "
+                "severe flooding. Several water rescues have been performed."
             ),
             "url": "https://wjla.com/news/local/2026/arlington-emergency-alert-flooding",
             "published": ts(60),
-            "location": "South Arlington",
+            "location": "Pentagon City, Crystal City",
             "event_type": "emergency_alert",
-            "lat": 38.855, "lon": -77.065,
+            "lat": 38.860, "lon": -77.060,
             "severity": 0.92, "confidence": 0.95,
+        },
+        {
+            "source": "Washington Post",
+            "title": "Severe Storms Disrupt Supply Deliveries in East Arlington",
+            "content": (
+                "Grocery delivery trucks and fuel tankers are unable to reach several "
+                "locations in Crystal City and Pentagon City. Stores report cancelled "
+                "deliveries, and gas stations along Route 1 may face fuel shortages."
+            ),
+            "url": "https://www.washingtonpost.com/dc-md-va/2026/supply-chain-disruption-nova",
+            "published": ts(90),
+            "location": "Crystal City, Pentagon City",
+            "event_type": "supply_disruption",
+            "lat": 38.856, "lon": -77.049,
+            "severity": 0.90, "confidence": 0.85,
         },
     ]
 
-    for a in articles:
+    for i, a in enumerate(articles, start=1):
         conn.execute(
             """INSERT INTO raw_news 
             (source_name, article_id, title, content, url, published_at, fetched_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (a["source"], f"SIM-{a['source'].upper().replace(' ', '')}-001",
+            (a["source"], f"SIM-{a['source'].upper().replace(' ', '')}-{i:03d}",
              a["title"], a["content"], a["url"], a["published"], ts(0)),
         )
 
@@ -404,11 +374,11 @@ def main():
         return
 
     print(f"\n{'=' * 60}")
-    print("  SIMULATING: Flash Flood in South Arlington")
+    print("  SIMULATING: Flash Flood in East Arlington")
     print(f"{'=' * 60}")
     print(f"  Time:     {NOW.strftime('%Y-%m-%d %H:%M UTC')}")
-    print(f"  Area:     Pentagon City -> Crystal City -> Shirlington")
-    print(f"  Event:    Severe thunderstorm + flash flooding")
+    print(f"  Area:     Pentagon City -> Crystal City -> Route 1 corridor")
+    print(f"  Event:    Severe thunderstorm + flash flooding (3-cell pocket)")
     print(f"{'=' * 60}")
 
     inject_weather(conn)
@@ -422,9 +392,10 @@ def main():
 
     print("\n[READY] Simulation ready! Now run:")
     print("   python app/fusion/fusion_engine.py")
-    print("\n   Then test routes through south Arlington:")
+    print("\n   Then test routes. A route that crosses the pocket should be")
+    print("   flagged, with a clear alternate around it, e.g.:")
     print('   POST /arlington/routes/analyze')
-    print('   { "source": {"name": "Ballston"},')
+    print('   { "source": {"name": "Rosslyn"},')
     print('     "destinations": [{"name": "Pentagon City"}, {"name": "Crystal City"}] }')
     print(f"\n   To remove: python app/simulation/simulate_disaster.py --cleanup\n")
 

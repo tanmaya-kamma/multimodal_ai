@@ -41,8 +41,9 @@ export const RouteAnalysisPanel: React.FC = () => {
       display: 'flex',
       flexDirection: 'column',
       padding: 0,
-      height: '100%',
+      maxHeight: '100%',
       minHeight: 0,
+      marginTop: 'auto',
       overflow: 'hidden',
     }}>
       {/* Header */}
@@ -148,11 +149,10 @@ export const RouteAnalysisPanel: React.FC = () => {
         )}
       </div>
 
-      {/* Results */}
       {routeData && (
-        <div style={{ 
+        <div className="styled-scrollbar" style={{ 
           flex: 1, overflowY: 'auto', minHeight: 0,
-          padding: '16px 20px', 
+          padding: '16px 8px 24px 20px', 
           borderTop: '1px solid var(--border-subtle)', 
           display: 'flex', flexDirection: 'column', gap: '16px',
         }}>
@@ -172,6 +172,61 @@ export const RouteAnalysisPanel: React.FC = () => {
             <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>
               {routeData.disrupted_cells_on_route} direct alert overlaps detected
             </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>{routeData.metrics?.recommended_distance_km ?? 0} km</span>
+                <span style={{ fontSize: '8px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Total Distance</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>{routeData.metrics?.recommended_duration_min ?? 0} min</span>
+                <span style={{ fontSize: '8px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Est. Duration</span>
+              </div>
+            </div>
+            
+            {routeData.compromised_legs > 0 && routeData.legs?.some(l => l.alternate_route) && (
+              <div style={{ marginTop: '16px' }}>
+                <button
+                  onClick={() => {
+                    const isAnyPrimary = routeData.legs.some((l, idx) => l.alternate_route && (!selectedRouteIndices[idx] || selectedRouteIndices[idx] === 'primary'));
+                    const targetType = isAnyPrimary ? 'alternate' : 'primary';
+                    routeData.legs.forEach((l, idx) => {
+                      if (l.alternate_route) {
+                        setLegRouteSelection(idx, targetType);
+                      }
+                    });
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    fontSize: '11px',
+                    background: 'rgba(52, 211, 153, 0.1)',
+                    border: '1px solid rgba(52, 211, 153, 0.3)',
+                    borderRadius: '8px',
+                    color: '#34D399',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    transition: 'all 0.2s',
+                    boxShadow: '0 0 10px rgba(52, 211, 153, 0.1)'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(52, 211, 153, 0.15)';
+                    e.currentTarget.style.boxShadow = '0 0 15px rgba(52, 211, 153, 0.2)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'rgba(52, 211, 153, 0.1)';
+                    e.currentTarget.style.boxShadow = '0 0 10px rgba(52, 211, 153, 0.1)';
+                  }}
+                >
+                  {(() => {
+                    const isAnyPrimary = routeData.legs.some((l, idx) => l.alternate_route && (!selectedRouteIndices[idx] || selectedRouteIndices[idx] === 'primary'));
+                    return isAnyPrimary ? 'Switch to Safest Route' : 'Revert to Primary Route';
+                  })()}
+                </button>
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
