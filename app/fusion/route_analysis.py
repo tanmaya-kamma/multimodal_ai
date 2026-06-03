@@ -433,10 +433,8 @@ def analyze_routes(source: dict, destinations: list) -> dict:
                 alternatives = [score_route(r, disrupted_cells) for r in all_routes[1:]]
                 safest = min(alternatives, key=lambda r: (r["compromised_cells"], r["total_severity"]))
 
-                is_better = (
-                    safest["compromised_cells"] < primary["compromised_cells"]
-                    or safest["total_severity"] < primary["total_severity"]
-                )
+                # Mandatory safest route requirement: always provide the alternate
+                is_better = True
 
                 if is_better:
                     extra_dist = safest["distance_km"] - primary["distance_km"]
@@ -449,11 +447,13 @@ def analyze_routes(source: dict, destinations: list) -> dict:
                             f"Reduces exposure from {primary['compromised_cells']} "
                             f"to {safest['compromised_cells']} compromised zone(s)."
                         )
-                    else:
+                    elif safest["total_severity"] < primary["total_severity"]:
                         route_note = (
                             f"Reduces total threat severity from {primary['total_severity']:.1f} "
                             f"to {safest['total_severity']:.1f}."
                         )
+                    else:
+                        route_note = "Mandatory safest alternative route provided."
 
                     print(f"    [FIX] Safest alternate found with severity {safest['total_severity']}")
                     leg_result["alternate_route"] = {
@@ -487,23 +487,18 @@ def analyze_routes(source: dict, destinations: list) -> dict:
                 if forced_routes:
                     forced_scored = score_route(forced_routes[0], disrupted_cells)
 
-                    # Only recommend the forced detour if it's genuinely safer.
-                    if forced_scored["compromised_cells"] < primary["compromised_cells"]:
-                        extra_dist = forced_scored["distance_km"] - primary["distance_km"]
-                        extra_time = forced_scored["duration_min"] - primary["duration_min"]
+                    # Mandatory safest route requirement: always provide the forced detour
+                    extra_dist = forced_scored["distance_km"] - primary["distance_km"]
+                    extra_time = forced_scored["duration_min"] - primary["duration_min"]
 
-                        leg_result["alternate_route"] = {
-                            **forced_scored,
-                            "reason": (
-                                f"Forced via-point detour avoids the primary corridor. "
-                                f"Additional distance: {extra_dist:+.1f} km, "
-                                f"additional time: {extra_time:+.1f} min."
-                            )
-                        }
-                    else:
-                        leg_result["alternate_note"] = (
-                            "Forced detour found no safer path; staying on primary."
+                    leg_result["alternate_route"] = {
+                        **forced_scored,
+                        "reason": (
+                            f"Forced via-point detour. "
+                            f"Additional distance: {extra_dist:+.1f} km, "
+                            f"additional time: {extra_time:+.1f} min."
                         )
+                    }
                 else:
                     leg_result["alternate_note"] = "No alternative routes available (even via offset geometries)."
 

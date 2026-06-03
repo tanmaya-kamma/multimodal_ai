@@ -56,9 +56,8 @@ def cell(lat, lon):
 # surrounding network always offers an alternate route.
 # ──────────────────────────────────────────────
 FLOOD_ZONE = [
-    {"name": "Pentagon City",    "lat": 38.862, "lon": -77.059},  # cell A
-    {"name": "Crystal City",     "lat": 38.856, "lon": -77.049},  # cell B
-    {"name": "Route 1 corridor", "lat": 38.850, "lon": -77.051},  # cell C
+    {"name": "Shirlington",      "lat": 38.843, "lon": -77.086},  # Cell A - I-395 near Shirlington
+    {"name": "Pentagon City",    "lat": 38.861, "lon": -77.063},  # Cell B - I-395 near Pentagon City
 ]
 
 
@@ -81,10 +80,10 @@ def inject_weather(conn):
                         "urgency": "Immediate",
                         "headline": "Flash Flood Warning issued for Arlington County until 6 PM EDT",
                         "description": (
-                            "Heavy rainfall has caused flash flooding in the Pentagon City "
-                            "and Crystal City area. Several roads along the Route 1 corridor "
+                            f"Heavy rainfall has caused flash flooding in the {FLOOD_ZONE[0]['name']} "
+                            f"and {FLOOD_ZONE[1]['name']} area. Several roads along the highway "
                             "are impassable. Water levels are rising rapidly. Low-lying areas "
-                            "around Pentagon City and Crystal City are experiencing significant "
+                            f"around {FLOOD_ZONE[0]['name']} and {FLOOD_ZONE[1]['name']} are experiencing significant "
                             "flooding."
                         ),
                         "instruction": "Turn around, don't drown. Avoid flood-prone areas.",
@@ -104,9 +103,9 @@ def inject_weather(conn):
                         "urgency": "Immediate",
                         "headline": "Severe Thunderstorm Warning for Arlington County",
                         "description": (
-                            "A severe thunderstorm producing heavy rain and damaging winds "
-                            "up to 60 mph is moving through east Arlington over the Pentagon "
-                            "City and Route 1 corridor. Rainfall rates exceeding 2 inches "
+                            f"A severe thunderstorm producing heavy rain and damaging winds "
+                            f"up to 60 mph is moving through east Arlington over the {FLOOD_ZONE[0]['name']} "
+                            f"and {FLOOD_ZONE[1]['name']}. Rainfall rates exceeding 2 inches "
                             "per hour."
                         ),
                         "instruction": "Move to an interior room on the lowest floor.",
@@ -123,17 +122,16 @@ def inject_weather(conn):
 
     conn.execute(
         "INSERT INTO raw_weather (lat, lon, response_json, fetched_at) VALUES (?, ?, ?, ?)",
-        (38.862, -77.059, json.dumps(alert_response), ts(0)),
+        (FLOOD_ZONE[0]["lat"], FLOOD_ZONE[0]["lon"], json.dumps(alert_response), ts(0)),
     )
 
     # Processed weather: alerts at each of the 3 pocket cells
     # (lat/lon, severity, confidence chosen so Pentagon City + Crystal
     #  City read CRITICAL once traffic/news corroborate, Route 1 WARNING)
     alerts = [
-        ("Flash Flood Warning",        38.862, -77.059, 0.95, 1.0,  ts(-10)),  # A Pentagon City
-        ("Flash Flood Warning",        38.856, -77.049, 0.95, 1.0,  ts(-10)),  # B Crystal City
-        ("Flash Flood Warning",        38.850, -77.051, 0.90, 0.9,  ts(-10)),  # C Route 1 corridor
-        ("Severe Thunderstorm Warning", 38.862, -77.059, 0.80, 1.0,  ts(-60)),  # A Pentagon City
+        ("Flash Flood Warning",         FLOOD_ZONE[0]["lat"], FLOOD_ZONE[0]["lon"], 0.95, 1.0,  ts(-10)),
+        ("Flash Flood Warning",         FLOOD_ZONE[1]["lat"], FLOOD_ZONE[1]["lon"], 0.95, 1.0,  ts(-10)),
+        ("Severe Thunderstorm Warning", FLOOD_ZONE[0]["lat"], FLOOD_ZONE[0]["lon"], 0.80, 1.0,  ts(-60)),
     ]
 
     for alert_type, lat, lon, severity, confidence, timestamp in alerts:
@@ -163,34 +161,18 @@ def inject_weather(conn):
 def inject_traffic(conn):
     print("\n  [TRAFFIC] Injecting traffic camera detections...")
 
-    # All cameras snap onto the 3 pocket cells:
-    #   A Pentagon City (38.862,-77.059 and the in-cell 38.860,-77.060),
-    #   B Crystal City  (38.856,-77.049),
-    #   C Route 1       (38.850,-77.051)
     cameras = [
         {
-            "id": "CAM-PENT-001", "lat": 38.862, "lon": -77.059,
+            "id": "CAM-SHIR-001", "lat": FLOOD_ZONE[0]["lat"], "lon": FLOOD_ZONE[0]["lon"],
             "congestion": "blocked", "anomaly": "flooding", "severity": 0.95, "confidence": 0.92,
             "time": ts(10),
-            "desc": "Standing water ~18 inches deep on S Hayes St near Pentagon City Mall",
+            "desc": f"Standing water ~18 inches deep near {FLOOD_ZONE[0]['name']}",
         },
         {
-            "id": "CAM-RT1-002", "lat": 38.850, "lon": -77.051,
-            "congestion": "blocked", "anomaly": "flooding", "severity": 0.92, "confidence": 0.90,
-            "time": ts(15),
-            "desc": "Route 1 (Richmond Hwy) southbound - roadway flooded, vehicles stranded",
-        },
-        {
-            "id": "CAM-CC-003", "lat": 38.856, "lon": -77.049,
+            "id": "CAM-PENT-002", "lat": FLOOD_ZONE[1]["lat"], "lon": FLOOD_ZONE[1]["lon"],
             "congestion": "blocked", "anomaly": "flooding", "severity": 0.90, "confidence": 0.90,
             "time": ts(25),
-            "desc": "Crystal Drive at 18th St S - intersection submerged",
-        },
-        {
-            "id": "CAM-PENT-004", "lat": 38.860, "lon": -77.060,
-            "congestion": "slow", "anomaly": "flooding", "severity": 0.75, "confidence": 0.85,
-            "time": ts(60),
-            "desc": "23rd Street S near Pentagon City - water rising on road surface",
+            "desc": f"Intersection submerged near {FLOOD_ZONE[1]['name']}",
         },
     ]
 
@@ -220,54 +202,34 @@ def inject_traffic(conn):
 def inject_news(conn):
     print("\n  [NEWS] Injecting news articles...")
 
-    # News only references the pocket (Pentagon City / Crystal City /
-    # Route 1). Articles land in cells A and B so those read CRITICAL
-    # (weather+traffic+news), while Route 1 (C) stays WARNING.
     articles = [
         {
             "source": "ARLnow",
-            "title": "Flash Flooding Closes Roads Around Pentagon City",
+            "title": f"Flash Flooding Closes Roads Around {FLOOD_ZONE[0]['name']}",
             "content": (
-                "Several roads around Pentagon City are impassable due to flash flooding. "
-                "S Hayes Street and the Route 1 corridor near Pentagon City Mall are "
-                "completely blocked. Multiple vehicles reported stranded."
+                f"Several roads around {FLOOD_ZONE[0]['name']} are impassable due to flash flooding. "
+                "Multiple vehicles reported stranded."
             ),
-            "url": "https://www.arlnow.com/2026/flash-flooding-pentagon-city",
+            "url": "https://www.arlnow.com/2026/flash-flooding",
             "published": ts(20),
-            "location": "Pentagon City, Route 1 corridor",
+            "location": FLOOD_ZONE[0]["name"],
             "event_type": "flooding",
-            "lat": 38.862, "lon": -77.059,
+            "lat": FLOOD_ZONE[0]["lat"], "lon": FLOOD_ZONE[0]["lon"],
             "severity": 0.85, "confidence": 0.90,
         },
         {
             "source": "WJLA ABC7",
-            "title": "Arlington County Issues Emergency Alert: Avoid Pentagon City Roads",
+            "title": f"Emergency Alert: Avoid {FLOOD_ZONE[1]['name']} Roads",
             "content": (
-                "Arlington County Emergency Management is urging residents to avoid roads "
-                "around Pentagon City and Crystal City. The Route 1 corridor is experiencing "
-                "severe flooding. Several water rescues have been performed."
+                f"Emergency Management is urging residents to avoid roads "
+                f"around {FLOOD_ZONE[1]['name']}. Severe flooding reported."
             ),
-            "url": "https://wjla.com/news/local/2026/arlington-emergency-alert-flooding",
+            "url": "https://wjla.com/news/local/2026/emergency-alert-flooding",
             "published": ts(60),
-            "location": "Pentagon City, Crystal City",
+            "location": FLOOD_ZONE[1]["name"],
             "event_type": "emergency_alert",
-            "lat": 38.860, "lon": -77.060,
+            "lat": FLOOD_ZONE[1]["lat"], "lon": FLOOD_ZONE[1]["lon"],
             "severity": 0.92, "confidence": 0.95,
-        },
-        {
-            "source": "Washington Post",
-            "title": "Severe Storms Disrupt Supply Deliveries in East Arlington",
-            "content": (
-                "Grocery delivery trucks and fuel tankers are unable to reach several "
-                "locations in Crystal City and Pentagon City. Stores report cancelled "
-                "deliveries, and gas stations along Route 1 may face fuel shortages."
-            ),
-            "url": "https://www.washingtonpost.com/dc-md-va/2026/supply-chain-disruption-nova",
-            "published": ts(90),
-            "location": "Crystal City, Pentagon City",
-            "event_type": "supply_disruption",
-            "lat": 38.856, "lon": -77.049,
-            "severity": 0.90, "confidence": 0.85,
         },
     ]
 
@@ -377,8 +339,9 @@ def main():
     print("  SIMULATING: Flash Flood in East Arlington")
     print(f"{'=' * 60}")
     print(f"  Time:     {NOW.strftime('%Y-%m-%d %H:%M UTC')}")
-    print(f"  Area:     Pentagon City -> Crystal City -> Route 1 corridor")
-    print(f"  Event:    Severe thunderstorm + flash flooding (3-cell pocket)")
+    area_str = " -> ".join([p["name"] for p in FLOOD_ZONE])
+    print(f"  Area:     {area_str}")
+    print(f"  Event:    Severe thunderstorm + flash flooding ({len(FLOOD_ZONE)}-cell pocket)")
     print(f"{'=' * 60}")
 
     inject_weather(conn)
