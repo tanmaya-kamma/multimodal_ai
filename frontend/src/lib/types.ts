@@ -249,6 +249,8 @@ export interface RouteAnalysisResponse {
   metrics: {
     total_distance_km: number;
     total_duration_min: number;
+    recommended_distance_km: number;
+    recommended_duration_min: number;
   };
   analyzed_at: string;
 }

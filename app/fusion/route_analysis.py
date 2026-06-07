@@ -1,3 +1,4 @@
+
 """
 route_analysis.py — Analyzes sequential supply delivery routes for disruptions.
 
@@ -53,6 +54,31 @@ def simplify_coords(coordinates: list, min_distance_m: int = SIMPLIFY_DISTANCE_M
     return simplified
 
 
+def _has_coords(pt: dict) -> bool:
+    """A routable point must carry numeric lat/lon (geocoding happens upstream)."""
+    return (
+        isinstance(pt, dict)
+        and pt.get("lat") is not None
+        and pt.get("lon") is not None
+    )
+
+
+def _unreachable_leg(msg: str) -> dict:
+    """Zeroed primary-route payload used when a leg cannot be routed."""
+    return {
+        "status": "unreachable",
+        "error": msg,
+        "distance_km": 0,
+        "duration_min": 0,
+        "total_cells": 0,
+        "compromised_cells": 0,
+        "total_severity": 0,
+        "route_coordinates": [],
+        "compromised_segments": [],
+        "directions": [],
+    }
+
+
 # ──────────────────────────────────────────────
 # Step 1: Get ALL driving routes from OSRM
 # Returns list of route options (primary + alternatives)
@@ -66,7 +92,7 @@ def get_all_routes(source: dict, destination: dict, via: dict = None) -> list:
         coords = f"{source['lon']},{source['lat']};{via['lon']},{via['lat']};{destination['lon']},{destination['lat']}"
     else:
         coords = f"{source['lon']},{source['lat']};{destination['lon']},{destination['lat']}"
-        
+
     url = f"{OSRM_BASE}/route/v1/driving/{coords}"
 
     params = {
@@ -74,8 +100,11 @@ def get_all_routes(source: dict, destination: dict, via: dict = None) -> list:
         "geometries": "geojson",
         "steps": "true",
         "annotations": "true",
-        "alternatives": "3",
     }
+    # OSRM does not return alternatives for multi-waypoint (via) requests,
+    # so only ask for them on the simple 2-point case.
+    if not via:
+        params["alternatives"] = "3"
 
     with httpx.Client(timeout=30) as client:
         try:
@@ -109,6 +138,8 @@ def get_all_routes(source: dict, destination: dict, via: dict = None) -> list:
                     "steps": steps,
                 })
 
+            # Guarantee "fastest first" rather than trusting OSRM ordering.
+            routes.sort(key=lambda r: r["duration_min"])
             return routes
 
         except Exception as e:
@@ -118,16 +149,33 @@ def get_all_routes(source: dict, destination: dict, via: dict = None) -> list:
 
 # ──────────────────────────────────────────────
 # Step 2: Assign H3 cells to route segments
+# Each segment carries EVERY cell it crosses (endpoints + any cells in
+# between), so long/sparse highway legs don't skip disrupted cells.
 # ──────────────────────────────────────────────
 def h3_index_route(coordinates: list) -> list:
     segments = []
     for i in range(len(coordinates) - 1):
         start = coordinates[i]
         end = coordinates[i + 1]
-        mid_lat = (start["lat"] + end["lat"]) / 2
-        mid_lon = (start["lon"] + end["lon"]) / 2
-        cell = h3.latlng_to_cell(mid_lat, mid_lon, H3_RESOLUTION)
-        segments.append({"start": start, "end": end, "h3_cell": cell})
+
+        c_start = h3.latlng_to_cell(start["lat"], start["lon"], H3_RESOLUTION)
+        c_end = h3.latlng_to_cell(end["lat"], end["lon"], H3_RESOLUTION)
+
+        # Fill any cells the straight segment passes through between its
+        # endpoints. A single midpoint sample misses these on long legs.
+        try:
+            cells = h3.grid_path_cells(c_start, c_end)
+        except Exception:
+            # grid_path can fail across pentagon distortions; fall back
+            # to the two endpoint cells.
+            cells = [c_start, c_end] if c_start != c_end else [c_start]
+
+        segments.append({
+            "start": start,
+            "end": end,
+            "h3_cell": c_start,   # kept for backward compatibility
+            "cells": cells,
+        })
     return segments
 
 
@@ -157,26 +205,31 @@ def score_route(route: dict, disrupted_cells: dict) -> dict:
     Returns route data with compromised segments and stats.
     """
     segments = h3_index_route(route["full_coordinates"])
-    
+
     seen_cells = set()
     compromised_count = 0
     total_severity = 0.0
-    
+
     # Build compromised segments for visualization
     compromised_segments = []
     current_comp = []
 
     for seg in segments:
-        cell = seg["h3_cell"]
-        disruption = disrupted_cells.get(cell)
+        seg_cells = seg["cells"]
 
-        if cell not in seen_cells:
-            seen_cells.add(cell)
-            if disruption:
-                compromised_count += 1
-                total_severity += disruption["severity"]
+        # Count each distinct crossed cell exactly once.
+        seg_is_disrupted = False
+        for cell in seg_cells:
+            if cell not in seen_cells:
+                seen_cells.add(cell)
+                disruption = disrupted_cells.get(cell)
+                if disruption:
+                    compromised_count += 1
+                    total_severity += disruption["severity"]
+            if cell in disrupted_cells:
+                seg_is_disrupted = True
 
-        if disruption:
+        if seg_is_disrupted:
             current_comp.append(seg["start"])
             current_comp.append(seg["end"])
         else:
@@ -217,7 +270,7 @@ def score_route(route: dict, disrupted_cells: dict) -> dict:
 
     if compromised_count == 0:
         status = "clear"
-    elif ratio > 0.4:
+    elif ratio > 0.5:   # matches spec: >50% of route cells disrupted
         status = "severely_compromised"
     else:
         status = "partially_compromised"
@@ -240,6 +293,8 @@ def score_route(route: dict, disrupted_cells: dict) -> dict:
 
 # ──────────────────────────────────────────────
 # Step 5: Find best alternate for a compromised leg
+# NOTE: currently unused — analyze_routes runs this logic inline. Kept
+# (and updated) so any external caller stays consistent with the engine.
 # ──────────────────────────────────────────────
 def find_alternate(source: dict, destination: dict, disrupted_cells: dict) -> dict | None:
     """
@@ -314,32 +369,40 @@ def analyze_routes(source: dict, destinations: list) -> dict:
 
     total_distance_km = 0
     total_duration_min = 0
+    rec_distance_km = 0       # totals along the RECOMMENDED path (alt where chosen)
+    rec_duration_min = 0
     analyzed_legs = []
     current_point = source
     total_compromised_legs = 0
     all_disrupted_on_route = set()
 
     for i, dest in enumerate(destinations):
-        # Get all routes for this leg
         print(f"  [DEBUG] Analyzing leg {i+1}: {current_point.get('name', 'Start')} -> {dest.get('name', 'Dest')}")
+
+        # Guard: this module routes on coordinates. If a point arrives
+        # without lat/lon (geocoding skipped upstream), fail clearly
+        # instead of crashing with a KeyError inside OSRM formatting.
+        if not _has_coords(current_point) or not _has_coords(dest):
+            missing = current_point.get("name") if not _has_coords(current_point) else dest.get("name")
+            analyzed_legs.append({
+                "source": current_point,
+                "destination": dest,
+                "primary_route": _unreachable_leg(
+                    f"Missing lat/lon for '{missing}' — geocode before route analysis"
+                ),
+                "alternate_route": None,
+            })
+            current_point = dest
+            continue
+
+        # Get all routes for this leg
         all_routes = get_all_routes(current_point, dest)
 
         if not all_routes:
             analyzed_legs.append({
                 "source": current_point,
                 "destination": dest,
-                "primary_route": {
-                    "status": "unreachable",
-                    "error": "No driving route found",
-                    "distance_km": 0,
-                    "duration_min": 0,
-                    "total_cells": 0,
-                    "compromised_cells": 0,
-                    "total_severity": 0,
-                    "route_coordinates": [],
-                    "compromised_segments": [],
-                    "directions": [],
-                },
+                "primary_route": _unreachable_leg("No driving route found"),
                 "alternate_route": None,
             })
             current_point = dest
@@ -359,22 +422,24 @@ def analyze_routes(source: dict, destinations: list) -> dict:
         if primary["compromised_cells"] > 0:
             total_compromised_legs += 1
 
-            # Track disrupted cells
+            # Track every disrupted cell the primary actually crosses.
             for seg in h3_index_route(all_routes[0]["full_coordinates"]):
-                if seg["h3_cell"] in disrupted_cells:
-                    all_disrupted_on_route.add(seg["h3_cell"])
+                for c in seg["cells"]:
+                    if c in disrupted_cells:
+                        all_disrupted_on_route.add(c)
 
             # Score all alternatives and find the safest
             if len(all_routes) > 1:
                 alternatives = [score_route(r, disrupted_cells) for r in all_routes[1:]]
                 safest = min(alternatives, key=lambda r: (r["compromised_cells"], r["total_severity"]))
 
-                extra_dist = safest["distance_km"] - primary["distance_km"]
-                extra_time = safest["duration_min"] - primary["duration_min"]
+                # Mandatory safest route requirement: always provide the alternate
+                is_better = True
 
-                if safest["compromised_cells"] < primary["compromised_cells"] or safest["total_severity"] < primary["total_severity"]:
-                    print(f"    [FIX] Safest alternate found with severity {safest['total_severity']}")
-                    
+                if is_better:
+                    extra_dist = safest["distance_km"] - primary["distance_km"]
+                    extra_time = safest["duration_min"] - primary["duration_min"]
+
                     if safest["compromised_cells"] == 0:
                         route_note = "Fully avoids all compromised zones."
                     elif safest["compromised_cells"] < primary["compromised_cells"]:
@@ -382,54 +447,70 @@ def analyze_routes(source: dict, destinations: list) -> dict:
                             f"Reduces exposure from {primary['compromised_cells']} "
                             f"to {safest['compromised_cells']} compromised zone(s)."
                         )
-                    else:
+                    elif safest["total_severity"] < primary["total_severity"]:
                         route_note = (
                             f"Reduces total threat severity from {primary['total_severity']:.1f} "
                             f"to {safest['total_severity']:.1f}."
                         )
-                else:
-                    route_note = "Alternate route available, but has similar or higher threat exposure."
+                    else:
+                        route_note = "Mandatory safest alternative route provided."
 
-                leg_result["alternate_route"] = {
-                    **safest,
-                    "reason": (
-                        f"{route_note} "
-                        f"Additional distance: {extra_dist:+.1f} km, "
-                        f"additional time: {extra_time:+.1f} min."
-                    ),
-                }
+                    print(f"    [FIX] Safest alternate found with severity {safest['total_severity']}")
+                    leg_result["alternate_route"] = {
+                        **safest,
+                        "reason": (
+                            f"{route_note} "
+                            f"Additional distance: {extra_dist:+.1f} km, "
+                            f"additional time: {extra_time:+.1f} min."
+                        ),
+                    }
+                else:
+                    # Don't surface a route that isn't actually safer as a recommendation.
+                    leg_result["alternate_note"] = (
+                        "Alternate routes exist but none reduce threat exposure; staying on primary."
+                    )
             else:
                 print("    [DEMO] Simulating alternate route via intermediate geometric offset...")
                 # OSRM didn't return alternatives natively. Force a detour that follows real roads.
                 mid_idx = len(all_routes[0]["full_coordinates"]) // 2
                 midway = all_routes[0]["full_coordinates"][mid_idx]
-                
+
                 # Shift ~1.5km East
                 forced_via = {"lat": midway["lat"], "lon": midway["lon"] + 0.015}
                 forced_routes = get_all_routes(current_point, dest, via=forced_via)
-                
+
                 # If shifting East fails (e.g. goes into the river without local roads), try West
                 if not forced_routes:
                     forced_via = {"lat": midway["lat"], "lon": midway["lon"] - 0.015}
                     forced_routes = get_all_routes(current_point, dest, via=forced_via)
-                
+
                 if forced_routes:
                     forced_scored = score_route(forced_routes[0], disrupted_cells)
+
+                    # Mandatory safest route requirement: always provide the forced detour
                     extra_dist = forced_scored["distance_km"] - primary["distance_km"]
                     extra_time = forced_scored["duration_min"] - primary["duration_min"]
-                    
+
                     leg_result["alternate_route"] = {
                         **forced_scored,
                         "reason": (
-                            f"Forced via-point alternative to avoid primary corridor. "
+                            f"Forced via-point detour. "
                             f"Additional distance: {extra_dist:+.1f} km, "
                             f"additional time: {extra_time:+.1f} min."
                         )
                     }
                 else:
                     leg_result["alternate_note"] = "No alternative routes available (even via offset geometries)."
+
+        # Primary-path totals (the planned sequential route).
         total_distance_km += primary["distance_km"]
         total_duration_min += primary["duration_min"]
+
+        # Recommended-path totals (take the alternate on legs where one is recommended).
+        chosen = leg_result["alternate_route"] or primary
+        rec_distance_km += chosen["distance_km"]
+        rec_duration_min += chosen["duration_min"]
+
         analyzed_legs.append(leg_result)
 
         # Next leg starts from this destination
@@ -457,6 +538,8 @@ def analyze_routes(source: dict, destinations: list) -> dict:
         "metrics": {
             "total_distance_km": round(total_distance_km, 2),
             "total_duration_min": round(total_duration_min, 1),
+            "recommended_distance_km": round(rec_distance_km, 2),
+            "recommended_duration_min": round(rec_duration_min, 1),
         },
         "analyzed_at": datetime.now(timezone.utc).isoformat(),
     }
